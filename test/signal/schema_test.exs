@@ -1,7 +1,5 @@
 defmodule Signal.SchemaTest do
-  use ExUnit.Case, async: false
-  import Ecto.Query
-  alias Signal.Repo
+  use Signal.DataCase, async: false
 
   @moduletag :database
 
@@ -203,11 +201,10 @@ defmodule Signal.SchemaTest do
 
     test "has unique constraint on (stream_id, version)" do
       query = """
-      SELECT constraint_name
-      FROM information_schema.table_constraints
-      WHERE table_name = 'events'
-        AND constraint_type = 'UNIQUE'
-        AND constraint_name = 'events_stream_version_unique'
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'events'
+        AND indexname = 'events_stream_version_unique'
       """
 
       {:ok, result} = Ecto.Adapters.SQL.query(Repo, query)

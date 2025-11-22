@@ -123,10 +123,13 @@ defmodule Signal.Monitor do
 
   @impl true
   def handle_cast({:track_message, type}, state) do
-    # Increment counter
-    new_counters = Map.update!(state.counters, type, &(&1 + 1))
+    # Convert type to plural form for counter keys
+    counter_key = type_to_counter_key(type)
 
-    # Update last message timestamp
+    # Increment counter
+    new_counters = Map.update!(state.counters, counter_key, &(&1 + 1))
+
+    # Update last message timestamp (using singular form)
     new_last_message = Map.put(state.last_message, type, DateTime.utc_now())
 
     new_state =
@@ -194,6 +197,10 @@ defmodule Signal.Monitor do
   end
 
   # Private Helper Functions
+
+  defp type_to_counter_key(:quote), do: :quotes
+  defp type_to_counter_key(:bar), do: :bars
+  defp type_to_counter_key(:trade), do: :trades
 
   defp calculate_window_seconds(window_start) do
     DateTime.diff(DateTime.utc_now(), window_start, :second)
@@ -305,7 +312,8 @@ defmodule Signal.Monitor do
     # Only check disconnection duration if we have a valid connection_start time
     # (i.e., we were previously connected before disconnecting)
     if state.connection_status == :disconnected and not is_nil(state.connection_start) do
-      seconds_since_disconnect = DateTime.diff(DateTime.utc_now(), state.connection_start, :second)
+      seconds_since_disconnect =
+        DateTime.diff(DateTime.utc_now(), state.connection_start, :second)
 
       if seconds_since_disconnect > 300 do
         Logger.error("[Monitor] ERROR: Disconnected for over 5 minutes")
