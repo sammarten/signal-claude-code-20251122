@@ -105,20 +105,10 @@ defmodule Signal.BarCache do
   """
   @spec current_price(atom()) :: Decimal.t() | nil
   def current_price(symbol) when is_atom(symbol) do
-    case get(symbol) do
-      {:ok, %{last_quote: quote}} when not is_nil(quote) ->
-        # Calculate mid-point from bid/ask
-        Decimal.div(
-          Decimal.add(quote.bid_price, quote.ask_price),
-          Decimal.new("2")
-        )
-
-      {:ok, %{last_bar: bar}} when not is_nil(bar) ->
-        # Fall back to bar close
-        bar.close
-
-      _ ->
-        nil
+    with {:ok, data} <- get(symbol) do
+      calculate_price_from_data(data)
+    else
+      _ -> nil
     end
   end
 
@@ -205,17 +195,8 @@ defmodule Signal.BarCache do
 
   @impl true
   def handle_call({:update_bar, symbol, bar}, _from, state) do
-    # Get existing data or initialize empty
-    existing_data =
-      case :ets.lookup(state.table, symbol) do
-        [{^symbol, data}] -> data
-        [] -> %{last_bar: nil, last_quote: nil}
-      end
-
-    # Update :last_bar field
+    existing_data = get_or_init_symbol_data(state.table, symbol)
     updated_data = Map.put(existing_data, :last_bar, bar)
-
-    # Insert into ETS
     :ets.insert(state.table, {symbol, updated_data})
 
     {:reply, :ok, state}
@@ -223,17 +204,8 @@ defmodule Signal.BarCache do
 
   @impl true
   def handle_call({:update_quote, symbol, quote}, _from, state) do
-    # Get existing data or initialize empty
-    existing_data =
-      case :ets.lookup(state.table, symbol) do
-        [{^symbol, data}] -> data
-        [] -> %{last_bar: nil, last_quote: nil}
-      end
-
-    # Update :last_quote field
+    existing_data = get_or_init_symbol_data(state.table, symbol)
     updated_data = Map.put(existing_data, :last_quote, quote)
-
-    # Insert into ETS
     :ets.insert(state.table, {symbol, updated_data})
 
     {:reply, :ok, state}
@@ -241,9 +213,30 @@ defmodule Signal.BarCache do
 
   @impl true
   def handle_call(:clear, _from, state) do
-    # Delete all objects from ETS
     :ets.delete_all_objects(state.table)
-
     {:reply, :ok, state}
   end
+
+  # Private Helpers
+
+  defp get_or_init_symbol_data(table, symbol) do
+    case :ets.lookup(table, symbol) do
+      [{^symbol, data}] -> data
+      [] -> %{last_bar: nil, last_quote: nil}
+    end
+  end
+
+  defp calculate_price_from_data(%{last_quote: quote}) when not is_nil(quote) do
+    # Use mid-point of bid/ask spread
+    quote.bid_price
+    |> Decimal.add(quote.ask_price)
+    |> Decimal.div(Decimal.new("2"))
+  end
+
+  defp calculate_price_from_data(%{last_bar: bar}) when not is_nil(bar) do
+    # Fall back to most recent bar close
+    bar.close
+  end
+
+  defp calculate_price_from_data(_), do: nil
 end
