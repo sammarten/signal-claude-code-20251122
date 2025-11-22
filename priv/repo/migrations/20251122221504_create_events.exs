@@ -20,9 +20,7 @@ defmodule Signal.Repo.Migrations.CreateEvents do
     create index(:events, [:timestamp])
 
     # Unique constraint for optimistic locking
-    create unique_index(:events, [:stream_id, :version],
-             name: :events_stream_version_unique
-           )
+    create unique_index(:events, [:stream_id, :version], name: :events_stream_version_unique)
   end
 
   def down do
