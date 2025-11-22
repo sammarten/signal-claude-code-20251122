@@ -116,4 +116,13 @@ if config_env() == :prod do
   #     config :swoosh, :api_client, Swoosh.ApiClient.Req
   #
   # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
+
+  # Alpaca configuration for production
+  config :signal, Signal.Alpaca,
+    api_key: System.fetch_env!("ALPACA_API_KEY"),
+    api_secret: System.fetch_env!("ALPACA_API_SECRET"),
+    base_url:
+      System.get_env("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
+    ws_url:
+      System.get_env("ALPACA_WS_URL", "wss://stream.data.alpaca.markets/v2/iex")
 end
