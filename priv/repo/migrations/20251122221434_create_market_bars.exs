@@ -1,0 +1,68 @@
+defmodule Signal.Repo.Migrations.CreateMarketBars do
+  use Ecto.Migration
+
+  def up do
+    # Create table with composite primary key
+    create table(:market_bars, primary_key: false) do
+      add :symbol, :string, null: false
+      add :bar_time, :utc_datetime_usec, null: false
+      add :open, :decimal, precision: 10, scale: 2, null: false
+      add :high, :decimal, precision: 10, scale: 2, null: false
+      add :low, :decimal, precision: 10, scale: 2, null: false
+      add :close, :decimal, precision: 10, scale: 2, null: false
+      add :volume, :bigint, null: false
+      add :vwap, :decimal, precision: 10, scale: 2
+      add :trade_count, :integer
+    end
+
+    # Add composite primary key
+    execute """
+    ALTER TABLE market_bars
+    ADD PRIMARY KEY (symbol, bar_time)
+    """
+
+    # Convert to TimescaleDB hypertable
+    execute """
+    SELECT create_hypertable(
+      'market_bars',
+      'bar_time',
+      chunk_time_interval => INTERVAL '1 day'
+    )
+    """
+
+    # Create index for efficient symbol queries
+    create index(:market_bars, [:symbol, :bar_time])
+
+    # Enable compression
+    execute """
+    ALTER TABLE market_bars SET (
+      timescaledb.compress,
+      timescaledb.compress_segmentby = 'symbol'
+    )
+    """
+
+    # Add compression policy (compress chunks older than 7 days)
+    execute """
+    SELECT add_compression_policy('market_bars', INTERVAL '7 days')
+    """
+
+    # Add retention policy (keep data for 6 years)
+    execute """
+    SELECT add_retention_policy('market_bars', INTERVAL '6 years')
+    """
+  end
+
+  def down do
+    # Remove policies first
+    execute """
+    SELECT remove_compression_policy('market_bars')
+    """
+
+    execute """
+    SELECT remove_retention_policy('market_bars')
+    """
+
+    # Drop the table (hypertable drops automatically)
+    drop table(:market_bars)
+  end
+end
