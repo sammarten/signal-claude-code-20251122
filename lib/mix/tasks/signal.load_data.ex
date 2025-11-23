@@ -64,7 +64,10 @@ defmodule Mix.Tasks.Signal.LoadData do
     symbols = get_symbols(opts[:symbols])
 
     if Enum.empty?(symbols) do
-      Mix.shell().error("No symbols configured or provided. Set symbols in config or use --symbols flag.")
+      Mix.shell().error(
+        "No symbols configured or provided. Set symbols in config or use --symbols flag."
+      )
+
       exit(:normal)
     end
 
@@ -134,7 +137,11 @@ defmodule Mix.Tasks.Signal.LoadData do
     Mix.shell().info("Symbols: #{Enum.join(symbols, ", ")} (#{length(symbols)} total)")
 
     years = end_date.year - start_date.year + 1
-    Mix.shell().info("Date Range: #{start_date} to #{end_date} (#{years} #{pluralize("year", years)})")
+
+    Mix.shell().info(
+      "Date Range: #{start_date} to #{end_date} (#{years} #{pluralize("year", years)})"
+    )
+
     Mix.shell().info("")
   end
 
@@ -151,12 +158,14 @@ defmodule Mix.Tasks.Signal.LoadData do
     # Print coverage table
     Mix.shell().info("Coverage Report:")
     Mix.shell().info(String.duplicate("-", 80))
+
     Mix.shell().info(
       String.pad_trailing("Symbol", 10) <>
         String.pad_trailing("Bars", 12) <>
         String.pad_trailing("Coverage", 12) <>
         "Status"
     )
+
     Mix.shell().info(String.duplicate("-", 80))
 
     reports

@@ -518,7 +518,9 @@ defmodule Signal.Alpaca.Client do
         # Alpaca returns timestamps like "2025-01-01T00:03:00Z" without microseconds
         # Add microseconds if missing by setting precision to 6 digits
         %{datetime | microsecond: {elem(datetime.microsecond, 0), 6}}
-      {:error, _} -> nil
+
+      {:error, _} ->
+        nil
     end
   end
 

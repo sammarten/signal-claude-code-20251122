@@ -158,12 +158,13 @@ defmodule Signal.MarketData.Verifier do
 
         trading_days = Repo.one(trading_days_query) || 0
 
-        avg_volume = cond do
-          is_nil(avg_vol) -> 0
-          is_struct(avg_vol, Decimal) -> Decimal.round(avg_vol, 0)
-          is_number(avg_vol) -> Decimal.new(avg_vol) |> Decimal.round(0)
-          true -> 0
-        end
+        avg_volume =
+          cond do
+            is_nil(avg_vol) -> 0
+            is_struct(avg_vol, Decimal) -> Decimal.round(avg_vol, 0)
+            is_number(avg_vol) -> Decimal.new(avg_vol) |> Decimal.round(0)
+            true -> 0
+          end
 
         {:ok,
          %{
@@ -205,6 +206,7 @@ defmodule Signal.MarketData.Verifier do
         limit: 5
 
     violations = Repo.all(query)
+
     count_query =
       from b in Bar,
         where: b.symbol == ^symbol,
@@ -256,12 +258,13 @@ defmodule Signal.MarketData.Verifier do
           rows
           |> Enum.map(fn [bar_time, next_bar, gap_minutes] ->
             # Convert gap_minutes to integer (PostgreSQL may return Decimal/float)
-            minutes = cond do
-              is_integer(gap_minutes) -> gap_minutes
-              is_float(gap_minutes) -> trunc(gap_minutes)
-              is_struct(gap_minutes, Decimal) -> Decimal.to_integer(gap_minutes)
-              true -> 0
-            end
+            minutes =
+              cond do
+                is_integer(gap_minutes) -> gap_minutes
+                is_float(gap_minutes) -> trunc(gap_minutes)
+                is_struct(gap_minutes, Decimal) -> Decimal.to_integer(gap_minutes)
+                true -> 0
+              end
 
             %{
               start: bar_time,

@@ -76,7 +76,9 @@ defmodule Signal.MarketData.HistoricalLoader do
     start_date = normalize_date(start_date)
     end_date = normalize_date(end_date)
 
-    Logger.info("[HistoricalLoader] Loading #{length(symbols)} symbols from #{start_date} to #{end_date}")
+    Logger.info(
+      "[HistoricalLoader] Loading #{length(symbols)} symbols from #{start_date} to #{end_date}"
+    )
 
     results =
       symbols
@@ -122,14 +124,18 @@ defmodule Signal.MarketData.HistoricalLoader do
       Logger.warning("[HistoricalLoader] No symbols configured")
       {:ok, 0}
     else
-      Logger.info("[HistoricalLoader] Loading #{length(symbols)} symbols in parallel (max #{@max_concurrency} concurrent)")
+      Logger.info(
+        "[HistoricalLoader] Loading #{length(symbols)} symbols in parallel (max #{@max_concurrency} concurrent)"
+      )
 
       start_time = System.monotonic_time(:second)
 
       results =
         symbols
         |> Task.async_stream(
-          fn symbol -> load_symbol_bars(symbol, normalize_date(start_date), normalize_date(end_date)) end,
+          fn symbol ->
+            load_symbol_bars(symbol, normalize_date(start_date), normalize_date(end_date))
+          end,
           max_concurrency: @max_concurrency,
           timeout: :infinity
         )
@@ -139,7 +145,9 @@ defmodule Signal.MarketData.HistoricalLoader do
       elapsed = System.monotonic_time(:second) - start_time
       rate = if elapsed > 0, do: div(results, elapsed), else: 0
 
-      Logger.info("[HistoricalLoader] Summary: #{results} total bars in #{format_duration(elapsed)}, avg #{rate} bars/sec")
+      Logger.info(
+        "[HistoricalLoader] Summary: #{results} total bars in #{format_duration(elapsed)}, avg #{rate} bars/sec"
+      )
 
       {:ok, results}
     end
@@ -268,7 +276,11 @@ defmodule Signal.MarketData.HistoricalLoader do
       {:ok, count} ->
         elapsed_ms = System.monotonic_time(:millisecond) - year_start
         elapsed_sec = Float.round(elapsed_ms / 1000, 1)
-        Logger.info("[HistoricalLoader] #{symbol}: #{year} complete (#{format_number(count)} bars, #{elapsed_sec}s)")
+
+        Logger.info(
+          "[HistoricalLoader] #{symbol}: #{year} complete (#{format_number(count)} bars, #{elapsed_sec}s)"
+        )
+
         count
 
       {:error, reason} ->
