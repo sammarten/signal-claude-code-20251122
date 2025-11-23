@@ -236,15 +236,8 @@ if alpaca_configured do
   IO.puts(Colors.green("✓ Alpaca credentials configured\n"))
 
   TestRunner.run_test("Fetch small date range from Alpaca", fn ->
-    # Test with a very small date range (1 day) - use recent date to ensure data exists
-    test_date = Date.add(Date.utc_today(), -10)  # 10 days ago
-
-    # Ensure it's a weekday (Mon-Fri)
-    test_date = case Date.day_of_week(test_date) do
-      6 -> Date.add(test_date, -1)  # Saturday -> Friday
-      7 -> Date.add(test_date, -2)  # Sunday -> Friday
-      _ -> test_date
-    end
+    # Test with November 17, 2025 (Monday) - reliable test date
+    test_date = ~D[2025-11-17]
 
     start_time = DateTime.new!(test_date, ~T[09:30:00], "Etc/UTC")
     end_time = DateTime.new!(test_date, ~T[16:00:00], "Etc/UTC")
@@ -276,13 +269,8 @@ if alpaca_configured do
   end)
 
   TestRunner.run_test("Load and store bars (1 day)", fn ->
-    # Use recent weekday for testing
-    test_date = Date.add(Date.utc_today(), -10)
-    test_date = case Date.day_of_week(test_date) do
-      6 -> Date.add(test_date, -1)
-      7 -> Date.add(test_date, -2)
-      _ -> test_date
-    end
+    # Use November 17, 2025 (Monday)
+    test_date = ~D[2025-11-17]
 
     # Clean up existing test data
     Repo.delete_all(from b in Bar, where: b.symbol == ^test_symbol and
@@ -315,13 +303,8 @@ if alpaca_configured do
   end)
 
   TestRunner.run_test("Idempotency test (re-run should not duplicate)", fn ->
-    # Use same recent weekday
-    test_date = Date.add(Date.utc_today(), -10)
-    test_date = case Date.day_of_week(test_date) do
-      6 -> Date.add(test_date, -1)
-      7 -> Date.add(test_date, -2)
-      _ -> test_date
-    end
+    # Use November 17, 2025 (Monday)
+    test_date = ~D[2025-11-17]
 
     # Run the same load again
     {:ok, stats} = HistoricalLoader.load_bars(
