@@ -36,3 +36,10 @@ config :phoenix, :plug_init_mode, :runtime
 # Enable helpful, but potentially expensive runtime checks
 config :phoenix_live_view,
   enable_expensive_runtime_checks: true
+
+# Disable starting BarCache, Monitor, and Alpaca stream in tests
+# Tests will start these processes individually as needed
+config :signal,
+  start_bar_cache: false,
+  start_monitor: false,
+  start_alpaca_stream: false
