@@ -34,8 +34,7 @@ defmodule SignalWeb.Live.Components.SystemStats do
     <div class="bg-white rounded-lg shadow-lg overflow-hidden">
       <div class="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600">
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
-          <.icon name="hero-chart-bar" class="size-6" />
-          System Statistics
+          <.icon name="hero-chart-bar" class="size-6" /> System Statistics
         </h2>
       </div>
 
@@ -50,8 +49,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
             <span>{health_text(@health)}</span>
           </div>
         </div>
-
-        <!-- Stats Grid -->
+        
+    <!-- Stats Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <!-- Connection Status -->
           <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
@@ -66,8 +65,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
               WebSocket Stream
             </div>
           </div>
-
-          <!-- Message Rates -->
+          
+    <!-- Message Rates -->
           <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
             <div class="flex items-center gap-2 mb-2">
               <.icon name="hero-chat-bubble-left-right" class="size-5 text-blue-500" />
@@ -90,8 +89,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
               <% end %>
             </div>
           </div>
-
-          <!-- Database Health -->
+          
+    <!-- Database Health -->
           <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
             <div class="flex items-center gap-2 mb-2">
               <.icon name="hero-circle-stack" class={"size-5 #{db_icon_class(@stats.db_healthy)}"} />
@@ -104,8 +103,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
               TimescaleDB
             </div>
           </div>
-
-          <!-- System Uptime -->
+          
+    <!-- System Uptime -->
           <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
             <div class="flex items-center gap-2 mb-2">
               <.icon name="hero-clock" class="size-5 text-purple-500" />
@@ -119,8 +118,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
             </div>
           </div>
         </div>
-
-        <!-- Last Message Timestamps -->
+        
+    <!-- Last Message Timestamps -->
         <%= if @stats[:last_quote] || @stats[:last_bar] do %>
           <div class="mt-6 pt-6 border-t border-gray-200">
             <div class="flex items-center gap-2 mb-3">
@@ -143,8 +142,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
             </div>
           </div>
         <% end %>
-
-        <!-- Market Status Indicator -->
+        
+    <!-- Market Status Indicator -->
         <div class="mt-4 pt-4 border-t border-gray-200">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
