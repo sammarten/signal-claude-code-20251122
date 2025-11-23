@@ -22,10 +22,10 @@ defmodule Signal.Alpaca.StreamHandler do
   ## PubSub Topics
 
   Messages are broadcast to:
-  - `"quotes:#{symbol}"` - Quote updates (only if price changed)
-  - `"bars:#{symbol}"` - Bar updates (always)
-  - `"trades:#{symbol}"` - Trade updates
-  - `"statuses:#{symbol}"` - Status changes (halts, resumes)
+  - `"quotes:{symbol}"` - Quote updates (only if price changed)
+  - `"bars:{symbol}"` - Bar updates (always)
+  - `"trades:{symbol}"` - Trade updates
+  - `"statuses:{symbol}"` - Status changes (halts, resumes)
   - `"alpaca:connection"` - Connection events
   """
 
@@ -195,7 +195,7 @@ defmodule Signal.Alpaca.StreamHandler do
 
   # Private helpers
 
-  defp quote_changed?(quote, nil), do: true
+  defp quote_changed?(_quote, nil), do: true
 
   defp quote_changed?(quote, last_quote) do
     not (Decimal.equal?(quote.bid_price, last_quote.bid_price) and

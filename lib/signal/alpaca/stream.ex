@@ -150,7 +150,7 @@ defmodule Signal.Alpaca.Stream do
   """
   @spec status(GenServer.server()) :: atom()
   def status(server) do
-    WebSockex.call(server, :status)
+    GenServer.call(server, :status)
   end
 
   @doc """
@@ -166,7 +166,7 @@ defmodule Signal.Alpaca.Stream do
   """
   @spec subscriptions(GenServer.server()) :: map()
   def subscriptions(server) do
-    WebSockex.call(server, :subscriptions)
+    GenServer.call(server, :subscriptions)
   end
 
   # WebSockex Callbacks
@@ -218,7 +218,7 @@ defmodule Signal.Alpaca.Stream do
     end
   end
 
-  @impl WebSockex
+  # GenServer callbacks (WebSockex supports these but doesn't define them in @behaviour)
   def handle_call(:status, _from, state) do
     {:reply, state.status, state}
   end
@@ -324,7 +324,7 @@ defmodule Signal.Alpaca.Stream do
 
   # WebSocket Actions
 
-  defp authenticate(state) do
+  defp authenticate(_state) do
     auth_msg =
       Jason.encode!(%{
         action: "auth",
