@@ -227,15 +227,20 @@ defmodule Signal.MarketData.Verifier do
 
   defp check_gaps(symbol) do
     # Query to find gaps larger than 1 minute
+    # Use CTE to calculate gaps, then filter in WHERE clause
     query = """
-    SELECT
-      bar_time,
-      LEAD(bar_time) OVER (ORDER BY bar_time) as next_bar,
-      EXTRACT(EPOCH FROM (LEAD(bar_time) OVER (ORDER BY bar_time) - bar_time))/60 as gap_minutes
-    FROM market_bars
-    WHERE symbol = $1
-      AND LEAD(bar_time) OVER (ORDER BY bar_time) IS NOT NULL
-      AND EXTRACT(EPOCH FROM (LEAD(bar_time) OVER (ORDER BY bar_time) - bar_time))/60 > 1
+    WITH gaps_cte AS (
+      SELECT
+        bar_time,
+        LEAD(bar_time) OVER (ORDER BY bar_time) as next_bar,
+        EXTRACT(EPOCH FROM (LEAD(bar_time) OVER (ORDER BY bar_time) - bar_time))/60 as gap_minutes
+      FROM market_bars
+      WHERE symbol = $1
+    )
+    SELECT bar_time, next_bar, gap_minutes
+    FROM gaps_cte
+    WHERE next_bar IS NOT NULL
+      AND gap_minutes > 1
     ORDER BY gap_minutes DESC
     LIMIT 10
     """

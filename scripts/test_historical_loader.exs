@@ -202,7 +202,7 @@ TestRunner.run_test("Insert test bars and check coverage", fn ->
   bars = for minute <- 0..99 do
     %{
       symbol: "TESTCOV2",
-      bar_time: DateTime.add(~U[2024-01-01 10:00:00Z], minute * 60, :second),
+      bar_time: DateTime.add(~U[2024-01-01 10:00:00.000000Z], minute * 60, :second),
       open: Decimal.new("100.00"),
       high: Decimal.new("101.00"),
       low: Decimal.new("99.00"),
@@ -236,12 +236,18 @@ if alpaca_configured do
   IO.puts(Colors.green("✓ Alpaca credentials configured\n"))
 
   TestRunner.run_test("Fetch small date range from Alpaca", fn ->
-    # Test with a very small date range (1 day)
-    start_date = ~D[2024-01-02]  # Tuesday
-    end_date = ~D[2024-01-02]
+    # Test with a very small date range (1 day) - use recent date to ensure data exists
+    test_date = Date.add(Date.utc_today(), -10)  # 10 days ago
 
-    start_time = DateTime.new!(start_date, ~T[09:30:00], "Etc/UTC")
-    end_time = DateTime.new!(end_date, ~T[16:00:00], "Etc/UTC")
+    # Ensure it's a weekday (Mon-Fri)
+    test_date = case Date.day_of_week(test_date) do
+      6 -> Date.add(test_date, -1)  # Saturday -> Friday
+      7 -> Date.add(test_date, -2)  # Sunday -> Friday
+      _ -> test_date
+    end
+
+    start_time = DateTime.new!(test_date, ~T[09:30:00], "Etc/UTC")
+    end_time = DateTime.new!(test_date, ~T[16:00:00], "Etc/UTC")
 
     result = Signal.Alpaca.Client.get_bars(
       test_symbol,
@@ -270,16 +276,24 @@ if alpaca_configured do
   end)
 
   TestRunner.run_test("Load and store bars (1 day)", fn ->
+    # Use recent weekday for testing
+    test_date = Date.add(Date.utc_today(), -10)
+    test_date = case Date.day_of_week(test_date) do
+      6 -> Date.add(test_date, -1)
+      7 -> Date.add(test_date, -2)
+      _ -> test_date
+    end
+
     # Clean up existing test data
-    Repo.delete_all(from b in Bar, where: b.symbol == test_symbol and
-      b.bar_time >= ^DateTime.new!(~D[2024-01-02], ~T[00:00:00], "Etc/UTC") and
-      b.bar_time <= ^DateTime.new!(~D[2024-01-02], ~T[23:59:59], "Etc/UTC"))
+    Repo.delete_all(from b in Bar, where: b.symbol == ^test_symbol and
+      b.bar_time >= ^DateTime.new!(test_date, ~T[00:00:00], "Etc/UTC") and
+      b.bar_time <= ^DateTime.new!(test_date, ~T[23:59:59], "Etc/UTC"))
 
     # Load one day of data
     {:ok, stats} = HistoricalLoader.load_bars(
       test_symbol,
-      ~D[2024-01-02],
-      ~D[2024-01-02]
+      test_date,
+      test_date
     )
 
     count = Map.get(stats, test_symbol, 0)
@@ -290,8 +304,8 @@ if alpaca_configured do
     db_count = Repo.one(
       from b in Bar,
         where: b.symbol == ^test_symbol and
-          b.bar_time >= ^DateTime.new!(~D[2024-01-02], ~T[00:00:00], "Etc/UTC") and
-          b.bar_time <= ^DateTime.new!(~D[2024-01-02], ~T[23:59:59], "Etc/UTC"),
+          b.bar_time >= ^DateTime.new!(test_date, ~T[00:00:00], "Etc/UTC") and
+          b.bar_time <= ^DateTime.new!(test_date, ~T[23:59:59], "Etc/UTC"),
         select: count(b.bar_time)
     )
 
@@ -301,11 +315,19 @@ if alpaca_configured do
   end)
 
   TestRunner.run_test("Idempotency test (re-run should not duplicate)", fn ->
+    # Use same recent weekday
+    test_date = Date.add(Date.utc_today(), -10)
+    test_date = case Date.day_of_week(test_date) do
+      6 -> Date.add(test_date, -1)
+      7 -> Date.add(test_date, -2)
+      _ -> test_date
+    end
+
     # Run the same load again
     {:ok, stats} = HistoricalLoader.load_bars(
       test_symbol,
-      ~D[2024-01-02],
-      ~D[2024-01-02]
+      test_date,
+      test_date
     )
 
     count = Map.get(stats, test_symbol, 0)
