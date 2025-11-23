@@ -10,6 +10,8 @@ IO.puts(String.duplicate("=", 70) <> "\n")
 alias Signal.MarketData.{Bar, HistoricalLoader, Verifier}
 alias Signal.Repo
 
+import Ecto.Query
+
 # Test configuration
 test_symbol = "AAPL"
 test_year = 2024
