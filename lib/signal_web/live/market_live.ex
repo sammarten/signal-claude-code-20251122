@@ -32,20 +32,24 @@ defmodule SignalWeb.MarketLive do
     # Load initial data from BarCache
     symbol_data = load_initial_data(symbols)
 
+    # Get current system stats and connection status from Monitor
+    # This ensures we show the correct status even if the stream connected before LiveView mounted
+    {connection_status, db_healthy, last_message} = get_initial_monitor_stats()
+
     {:ok,
      assign(socket,
        symbols: symbols,
        symbol_data: symbol_data,
-       connection_status: :disconnected,
+       connection_status: connection_status,
        connection_details: %{},
        system_stats: %{
          quotes_per_sec: 0,
          bars_per_min: 0,
          trades_per_sec: 0,
          uptime_seconds: 0,
-         db_healthy: true,
-         last_quote: nil,
-         last_bar: nil
+         db_healthy: db_healthy,
+         last_quote: last_message.quote,
+         last_bar: last_message.bar
        }
      )}
   end
@@ -141,6 +145,16 @@ defmodule SignalWeb.MarketLive do
 
   # Private helper functions
 
+  defp get_initial_monitor_stats do
+    try do
+      stats = Signal.Monitor.get_stats()
+      {stats.connection_status, stats.db_healthy, stats.last_message}
+    catch
+      # Monitor not available (e.g., in tests) or process exited
+      :exit, _ -> {:disconnected, true, %{quote: nil, bar: nil, trade: nil}}
+    end
+  end
+
   defp load_initial_data(symbols) do
     symbols
     |> Enum.map(fn symbol ->
@@ -220,7 +234,7 @@ defmodule SignalWeb.MarketLive do
     |> Decimal.div(Decimal.new("2"))
   end
 
-  defp determine_price_change(new_price, previous_price) when is_nil(previous_price) do
+  defp determine_price_change(_new_price, previous_price) when is_nil(previous_price) do
     :no_data
   end
 
