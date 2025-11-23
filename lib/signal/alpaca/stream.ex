@@ -198,7 +198,7 @@ defmodule Signal.Alpaca.Stream do
   @impl WebSockex
   def handle_cast({:subscribe, new_subs}, state) do
     if state.status == :authenticated or state.status == :subscribed do
-      send_subscription(new_subs, state)
+      send(self(), {:send_subscription, new_subs})
       updated_subs = merge_subscriptions(state.subscriptions, new_subs)
       {:ok, %{state | subscriptions: updated_subs}}
     else
@@ -210,7 +210,7 @@ defmodule Signal.Alpaca.Stream do
 
   def handle_cast({:unsubscribe, remove_subs}, state) do
     if state.status == :authenticated or state.status == :subscribed do
-      send_unsubscription(remove_subs, state)
+      send(self(), {:send_unsubscription, remove_subs})
       updated_subs = remove_subscriptions(state.subscriptions, remove_subs)
       {:ok, %{state | subscriptions: updated_subs}}
     else
@@ -225,6 +225,53 @@ defmodule Signal.Alpaca.Stream do
 
   def handle_call(:subscriptions, _from, state) do
     {:reply, state.subscriptions, state}
+  end
+
+  # Handle info callbacks for sending frames (can't call send_frame from other callbacks)
+  @impl WebSockex
+  def handle_info(:authenticate, state) do
+    auth_msg =
+      Jason.encode!(%{
+        action: "auth",
+        key: Config.api_key!(),
+        secret: Config.api_secret!()
+      })
+
+    {:reply, {:text, auth_msg}, state}
+  end
+
+  def handle_info({:send_subscription, subs}, state) do
+    if map_size(subs) == 0 do
+      {:ok, state}
+    else
+      msg =
+        Jason.encode!(%{
+          action: "subscribe",
+          bars: Map.get(subs, :bars, []),
+          quotes: Map.get(subs, :quotes, []),
+          trades: Map.get(subs, :trades, []),
+          statuses: Map.get(subs, :statuses, [])
+        })
+
+      {:reply, {:text, msg}, state}
+    end
+  end
+
+  def handle_info({:send_unsubscription, subs}, state) do
+    if map_size(subs) == 0 do
+      {:ok, state}
+    else
+      msg =
+        Jason.encode!(%{
+          action: "unsubscribe",
+          bars: Map.get(subs, :bars, []),
+          quotes: Map.get(subs, :quotes, []),
+          trades: Map.get(subs, :trades, []),
+          statuses: Map.get(subs, :statuses, [])
+        })
+
+      {:reply, {:text, msg}, state}
+    end
   end
 
   @impl WebSockex
@@ -258,7 +305,8 @@ defmodule Signal.Alpaca.Stream do
 
   defp process_message(%{"T" => "success", "msg" => "connected"}, state) do
     Logger.debug("AlpacaStream received connection confirmation")
-    authenticate(state)
+    # Send message to self to authenticate (can't call send_frame from callback)
+    send(self(), :authenticate)
     state
   end
 
@@ -268,7 +316,8 @@ defmodule Signal.Alpaca.Stream do
 
     # Send pending subscriptions
     if map_size(state.pending_subscriptions) > 0 do
-      send_subscription(state.pending_subscriptions, new_state)
+      # Send message to self to subscribe (can't call send_frame from callback)
+      send(self(), {:send_subscription, state.pending_subscriptions})
       updated_subs = merge_subscriptions(state.subscriptions, state.pending_subscriptions)
 
       %{
@@ -320,49 +369,6 @@ defmodule Signal.Alpaca.Stream do
   defp process_message(msg, state) do
     Logger.debug("AlpacaStream received unknown message type: #{inspect(msg)}")
     state
-  end
-
-  # WebSocket Actions
-
-  defp authenticate(_state) do
-    auth_msg =
-      Jason.encode!(%{
-        action: "auth",
-        key: Config.api_key!(),
-        secret: Config.api_secret!()
-      })
-
-    WebSockex.send_frame(self(), {:text, auth_msg})
-  end
-
-  defp send_subscription(subs, _state) when map_size(subs) == 0, do: :ok
-
-  defp send_subscription(subs, _state) do
-    msg =
-      Jason.encode!(%{
-        action: "subscribe",
-        bars: Map.get(subs, :bars, []),
-        quotes: Map.get(subs, :quotes, []),
-        trades: Map.get(subs, :trades, []),
-        statuses: Map.get(subs, :statuses, [])
-      })
-
-    WebSockex.send_frame(self(), {:text, msg})
-  end
-
-  defp send_unsubscription(subs, _state) when map_size(subs) == 0, do: :ok
-
-  defp send_unsubscription(subs, _state) do
-    msg =
-      Jason.encode!(%{
-        action: "unsubscribe",
-        bars: Map.get(subs, :bars, []),
-        quotes: Map.get(subs, :quotes, []),
-        trades: Map.get(subs, :trades, []),
-        statuses: Map.get(subs, :statuses, [])
-      })
-
-    WebSockex.send_frame(self(), {:text, msg})
   end
 
   # Message Normalization

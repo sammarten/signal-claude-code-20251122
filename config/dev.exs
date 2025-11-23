@@ -90,8 +90,8 @@ config :swoosh, :api_client, false
 
 # Alpaca configuration
 config :signal, Signal.Alpaca,
-  api_key: System.get_env("ALPACA_API_KEY"),
-  api_secret: System.get_env("ALPACA_API_SECRET"),
+  api_key: System.get_env("ALPACA_API_KEY_ID"),
+  api_secret: System.get_env("ALPACA_API_SECRET_KEY"),
   base_url: System.get_env("ALPACA_BASE_URL") || "https://paper-api.alpaca.markets",
   ws_url: System.get_env("ALPACA_WS_URL") || "wss://stream.data.alpaca.markets/v2/iex"
 
