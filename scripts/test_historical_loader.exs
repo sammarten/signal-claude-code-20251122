@@ -59,19 +59,17 @@ defmodule TestRunner do
   end
 end
 
-import TestRunner
-
 # Test 1: Database Connection
 IO.puts(Colors.blue("Test Group 1: Database Connectivity"))
 IO.puts(String.duplicate("-", 70))
 
-run_test("Database connection", fn ->
+TestRunner.run_test("Database connection", fn ->
   result = Ecto.Adapters.SQL.query!(Repo, "SELECT 1 as test")
-  assert(result.num_rows == 1, "Database query failed")
+  TestRunner.assert(result.num_rows == 1, "Database query failed")
   :ok
 end)
 
-run_test("market_bars table exists", fn ->
+TestRunner.run_test("market_bars table exists", fn ->
   result = Ecto.Adapters.SQL.query!(Repo, """
     SELECT EXISTS (
       SELECT FROM information_schema.tables
@@ -79,11 +77,11 @@ run_test("market_bars table exists", fn ->
     )
   """)
   [[exists]] = result.rows
-  assert(exists, "market_bars table does not exist")
+  TestRunner.assert(exists, "market_bars table does not exist")
   :ok
 end)
 
-run_test("TimescaleDB hypertable configured", fn ->
+TestRunner.run_test("TimescaleDB hypertable configured", fn ->
   result = Ecto.Adapters.SQL.query!(Repo, """
     SELECT EXISTS (
       SELECT FROM timescaledb_information.hypertables
@@ -91,7 +89,7 @@ run_test("TimescaleDB hypertable configured", fn ->
     )
   """)
   [[exists]] = result.rows
-  assert(exists, "market_bars is not a hypertable")
+  TestRunner.assert(exists, "market_bars is not a hypertable")
   :ok
 end)
 
@@ -101,7 +99,7 @@ IO.puts("")
 IO.puts(Colors.blue("Test Group 2: Bar Schema & Validation"))
 IO.puts(String.duplicate("-", 70))
 
-run_test("Create valid bar struct", fn ->
+TestRunner.run_test("Create valid bar struct", fn ->
   bar = %Bar{
     symbol: "TEST",
     bar_time: ~U[2024-01-01 10:00:00Z],
@@ -111,11 +109,11 @@ run_test("Create valid bar struct", fn ->
     close: Decimal.new("100.50"),
     volume: 1000
   }
-  assert(bar.symbol == "TEST")
+  TestRunner.assert(bar.symbol == "TEST")
   bar
 end)
 
-run_test("Validate OHLC relationships (valid)", fn ->
+TestRunner.run_test("Validate OHLC relationships (valid)", fn ->
   changeset = Bar.changeset(%Bar{}, %{
     symbol: "TEST",
     bar_time: ~U[2024-01-01 10:00:00Z],
@@ -125,11 +123,11 @@ run_test("Validate OHLC relationships (valid)", fn ->
     close: Decimal.new("100.50"),
     volume: 1000
   })
-  assert(changeset.valid?, "Valid bar should pass validation")
+  TestRunner.assert(changeset.valid?, "Valid bar should pass validation")
   :ok
 end)
 
-run_test("Validate OHLC relationships (invalid high)", fn ->
+TestRunner.run_test("Validate OHLC relationships (invalid high)", fn ->
   changeset = Bar.changeset(%Bar{}, %{
     symbol: "TEST",
     bar_time: ~U[2024-01-01 10:00:00Z],
@@ -139,11 +137,11 @@ run_test("Validate OHLC relationships (invalid high)", fn ->
     close: Decimal.new("99.50"),
     volume: 1000
   })
-  assert(!changeset.valid?, "Invalid high should fail validation")
+  TestRunner.assert(!changeset.valid?, "Invalid high should fail validation")
   :ok
 end)
 
-run_test("from_alpaca/2 conversion", fn ->
+TestRunner.run_test("from_alpaca/2 conversion", fn ->
   alpaca_bar = %{
     timestamp: ~U[2024-01-01 10:00:00Z],
     open: Decimal.new("100.00"),
@@ -155,12 +153,12 @@ run_test("from_alpaca/2 conversion", fn ->
     trade_count: 50
   }
   bar = Bar.from_alpaca("TEST", alpaca_bar)
-  assert(bar.symbol == "TEST")
-  assert(Decimal.equal?(bar.open, Decimal.new("100.00")))
+  TestRunner.assert(bar.symbol == "TEST")
+  TestRunner.assert(Decimal.equal?(bar.open, Decimal.new("100.00")))
   :ok
 end)
 
-run_test("to_map/1 conversion", fn ->
+TestRunner.run_test("to_map/1 conversion", fn ->
   bar = %Bar{
     symbol: "TEST",
     bar_time: ~U[2024-01-01 10:00:00Z],
@@ -171,8 +169,8 @@ run_test("to_map/1 conversion", fn ->
     volume: 1000
   }
   map = Bar.to_map(bar)
-  assert(is_map(map))
-  assert(map.symbol == "TEST")
+  TestRunner.assert(is_map(map))
+  TestRunner.assert(map.symbol == "TEST")
   :ok
 end)
 
@@ -182,19 +180,19 @@ IO.puts("")
 IO.puts(Colors.blue("Test Group 3: Coverage Checking"))
 IO.puts(String.duplicate("-", 70))
 
-run_test("Check coverage for symbol with no data", fn ->
+TestRunner.run_test("Check coverage for symbol with no data", fn ->
   # Clean up any existing test data first
   Repo.delete_all(from b in Bar, where: b.symbol == "TESTCOV")
 
   {:ok, coverage} = HistoricalLoader.check_coverage("TESTCOV", {~D[2024-01-01], ~D[2024-12-31]})
-  assert_eq(coverage.bars_count, 0, "Should have no bars")
-  assert_eq(coverage.coverage_pct, 0.0, "Should have 0% coverage")
-  assert_eq(length(coverage.missing_years), 1, "Should have 1 missing year")
-  assert([2024] == coverage.missing_years, "Should be missing 2024")
+  TestRunner.assert_eq(coverage.bars_count, 0, "Should have no bars")
+  TestRunner.assert_eq(coverage.coverage_pct, 0.0, "Should have 0% coverage")
+  TestRunner.assert_eq(length(coverage.missing_years), 1, "Should have 1 missing year")
+  TestRunner.assert([2024] == coverage.missing_years, "Should be missing 2024")
   :ok
 end)
 
-run_test("Insert test bars and check coverage", fn ->
+TestRunner.run_test("Insert test bars and check coverage", fn ->
   # Clean up first
   Repo.delete_all(from b in Bar, where: b.symbol == "TESTCOV2")
 
@@ -212,12 +210,12 @@ run_test("Insert test bars and check coverage", fn ->
   end
 
   {count, _} = Repo.insert_all(Bar, bars, on_conflict: :nothing, conflict_target: [:symbol, :bar_time])
-  assert(count == 100, "Should insert 100 bars")
+  TestRunner.assert(count == 100, "Should insert 100 bars")
 
   {:ok, coverage} = HistoricalLoader.check_coverage("TESTCOV2", {~D[2024-01-01], ~D[2024-12-31]})
-  assert(coverage.bars_count == 100, "Should have 100 bars")
-  assert(coverage.coverage_pct == 100.0, "Should have 100% coverage for 2024")
-  assert([2024] == coverage.years_with_data, "Should have data for 2024")
+  TestRunner.assert(coverage.bars_count == 100, "Should have 100 bars")
+  TestRunner.assert(coverage.coverage_pct == 100.0, "Should have 100% coverage for 2024")
+  TestRunner.assert([2024] == coverage.years_with_data, "Should have data for 2024")
 
   # Clean up
   Repo.delete_all(from b in Bar, where: b.symbol == "TESTCOV2")
@@ -235,7 +233,7 @@ alpaca_configured = Signal.Alpaca.Config.configured?()
 if alpaca_configured do
   IO.puts(Colors.green("✓ Alpaca credentials configured\n"))
 
-  run_test("Fetch small date range from Alpaca", fn ->
+  TestRunner.run_test("Fetch small date range from Alpaca", fn ->
     # Test with a very small date range (1 day)
     start_date = ~D[2024-01-02]  # Tuesday
     end_date = ~D[2024-01-02]
@@ -254,13 +252,13 @@ if alpaca_configured do
       {:ok, bars_map} ->
         bars = Map.get(bars_map, test_symbol, [])
         IO.puts("\n  #{Colors.cyan("→")} Fetched #{length(bars)} bars for #{test_symbol}")
-        assert(is_list(bars), "Should return list of bars")
+        TestRunner.assert(is_list(bars), "Should return list of bars")
 
         if length(bars) > 0 do
           first_bar = List.first(bars)
           IO.puts("  #{Colors.cyan("→")} First bar: #{first_bar.timestamp}")
           IO.puts("  #{Colors.cyan("→")} OHLC: #{first_bar.open} / #{first_bar.high} / #{first_bar.low} / #{first_bar.close}")
-          assert(is_struct(first_bar.open, Decimal), "Prices should be Decimal")
+          TestRunner.assert(is_struct(first_bar.open, Decimal), "Prices should be Decimal")
         end
         :ok
 
@@ -269,7 +267,7 @@ if alpaca_configured do
     end
   end)
 
-  run_test("Load and store bars (1 day)", fn ->
+  TestRunner.run_test("Load and store bars (1 day)", fn ->
     # Clean up existing test data
     Repo.delete_all(from b in Bar, where: b.symbol == test_symbol and
       b.bar_time >= ^DateTime.new!(~D[2024-01-02], ~T[00:00:00], "Etc/UTC") and
@@ -284,7 +282,7 @@ if alpaca_configured do
 
     count = Map.get(stats, test_symbol, 0)
     IO.puts("\n  #{Colors.cyan("→")} Loaded #{count} bars")
-    assert(count > 0, "Should load some bars")
+    TestRunner.assert(count > 0, "Should load some bars")
 
     # Verify data was stored
     db_count = Repo.one(
@@ -296,11 +294,11 @@ if alpaca_configured do
     )
 
     IO.puts("  #{Colors.cyan("→")} Database has #{db_count} bars")
-    assert(db_count == count, "Database count should match loaded count")
+    TestRunner.assert(db_count == count, "Database count should match loaded count")
     :ok
   end)
 
-  run_test("Idempotency test (re-run should not duplicate)", fn ->
+  TestRunner.run_test("Idempotency test (re-run should not duplicate)", fn ->
     # Run the same load again
     {:ok, stats} = HistoricalLoader.load_bars(
       test_symbol,
@@ -310,7 +308,7 @@ if alpaca_configured do
 
     count = Map.get(stats, test_symbol, 0)
     IO.puts("\n  #{Colors.cyan("→")} Second load: #{count} new bars (should be 0)")
-    assert(count == 0, "Should not load duplicate bars")
+    TestRunner.assert(count == 0, "Should not load duplicate bars")
     :ok
   end)
 
@@ -326,7 +324,7 @@ IO.puts(Colors.blue("Test Group 5: Data Verification"))
 IO.puts(String.duplicate("-", 70))
 
 if alpaca_configured do
-  run_test("Verify symbol data quality", fn ->
+  TestRunner.run_test("Verify symbol data quality", fn ->
     {:ok, report} = Verifier.verify_symbol(test_symbol)
 
     IO.puts("\n  #{Colors.cyan("→")} Total bars: #{report.total_bars}")
@@ -349,7 +347,7 @@ if alpaca_configured do
       IO.puts("  #{Colors.green("→")} No data quality issues found!")
     end
 
-    assert(is_map(report), "Should return report map")
+    TestRunner.assert(is_map(report), "Should return report map")
     :ok
   end)
 else
