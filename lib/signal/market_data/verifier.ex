@@ -158,12 +158,19 @@ defmodule Signal.MarketData.Verifier do
 
         trading_days = Repo.one(trading_days_query) || 0
 
+        avg_volume = cond do
+          is_nil(avg_vol) -> 0
+          is_struct(avg_vol, Decimal) -> Decimal.round(avg_vol, 0)
+          is_number(avg_vol) -> Decimal.new(avg_vol) |> Decimal.round(0)
+          true -> 0
+        end
+
         {:ok,
          %{
            total_bars: total,
            earliest_date: DateTime.to_date(earliest),
            latest_date: DateTime.to_date(latest),
-           avg_volume: if(avg_vol, do: Decimal.new(avg_vol) |> Decimal.round(0), else: 0),
+           avg_volume: avg_volume,
            trading_days: trading_days
          }}
 
