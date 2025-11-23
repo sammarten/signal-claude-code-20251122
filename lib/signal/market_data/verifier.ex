@@ -103,9 +103,7 @@ defmodule Signal.MarketData.Verifier do
   """
   @spec verify_all() :: {:ok, [map()]} | {:error, term()}
   def verify_all do
-    symbols =
-      Application.get_env(:signal, :symbols, [])
-      |> Enum.map(&Atom.to_string/1)
+    symbols = Application.get_env(:signal, :symbols, [])
 
     if Enum.empty?(symbols) do
       Logger.warning("[Verifier] No symbols configured")

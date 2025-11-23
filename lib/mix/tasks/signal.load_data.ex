@@ -86,7 +86,6 @@ defmodule Mix.Tasks.Signal.LoadData do
 
   defp get_symbols(nil) do
     Application.get_env(:signal, :symbols, [])
-    |> Enum.map(&Atom.to_string/1)
   end
 
   defp get_symbols(symbols_str) do

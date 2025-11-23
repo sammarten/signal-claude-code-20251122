@@ -135,7 +135,6 @@ symbols = case System.argv() do
   [] ->
     # No arguments - verify all configured symbols
     Application.get_env(:signal, :symbols, [])
-    |> Enum.map(&Atom.to_string/1)
 
   args ->
     # Verify specified symbols

@@ -116,9 +116,7 @@ defmodule Signal.MarketData.HistoricalLoader do
   @spec load_all(Date.t() | DateTime.t(), Date.t() | DateTime.t()) ::
           {:ok, integer()} | {:error, term()}
   def load_all(start_date, end_date \\ Date.utc_today()) do
-    symbols =
-      Application.get_env(:signal, :symbols, [])
-      |> Enum.map(&Atom.to_string/1)
+    symbols = Application.get_env(:signal, :symbols, [])
 
     if Enum.empty?(symbols) do
       Logger.warning("[HistoricalLoader] No symbols configured")
