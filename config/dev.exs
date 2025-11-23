@@ -97,6 +97,8 @@ config :signal, Signal.Alpaca,
 
 # Signal application config
 config :signal,
+  # Set to true to use mock stream for development without Alpaca credentials
+  use_mock_stream: false,
   symbols: [
     # Tech stocks
     "AAPL",
