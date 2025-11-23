@@ -114,7 +114,7 @@ defmodule Signal.Alpaca.Client do
   """
   @spec get_latest_bar(String.t()) :: {:ok, map()} | {:error, any()}
   def get_latest_bar(symbol) do
-    case get("/v2/stocks/#{symbol}/bars/latest") do
+    case data_get("/v2/stocks/#{symbol}/bars/latest") do
       {:ok, %{"bar" => bar_data}} ->
         {:ok, parse_bar(bar_data)}
 
@@ -137,7 +137,7 @@ defmodule Signal.Alpaca.Client do
   """
   @spec get_latest_quote(String.t()) :: {:ok, map()} | {:error, any()}
   def get_latest_quote(symbol) do
-    case get("/v2/stocks/#{symbol}/quotes/latest") do
+    case data_get("/v2/stocks/#{symbol}/quotes/latest") do
       {:ok, %{"quote" => quote_data}} ->
         {:ok, parse_quote(quote_data)}
 
@@ -160,7 +160,7 @@ defmodule Signal.Alpaca.Client do
   """
   @spec get_latest_trade(String.t()) :: {:ok, map()} | {:error, any()}
   def get_latest_trade(symbol) do
-    case get("/v2/stocks/#{symbol}/trades/latest") do
+    case data_get("/v2/stocks/#{symbol}/trades/latest") do
       {:ok, %{"trade" => trade_data}} ->
         {:ok, parse_trade(trade_data)}
 
@@ -324,7 +324,7 @@ defmodule Signal.Alpaca.Client do
 
       {:ok, accumulated}
     else
-      case get(path, params) do
+      case data_get(path, params) do
         {:ok, response} ->
           bars = parse_bars_response(response)
           merged = deep_merge_bars(accumulated, bars)
@@ -357,6 +357,10 @@ defmodule Signal.Alpaca.Client do
 
   defp delete(path) do
     request(:delete, path)
+  end
+
+  defp data_get(path, params \\ %{}) do
+    data_request(:get, path, params: params)
   end
 
   defp request(method, path, opts \\ []) do
@@ -402,8 +406,57 @@ defmodule Signal.Alpaca.Client do
       {:error, {:invalid_response, error}}
   end
 
+  # Market data request - uses data.alpaca.markets
+  defp data_request(method, path, opts \\ []) do
+    url = build_data_url(path)
+
+    req_opts =
+      [
+        method: method,
+        url: url,
+        headers: build_headers(),
+        retry: :transient,
+        max_retries: 3,
+        retry_delay: fn attempt -> Enum.at(@retry_delays, attempt - 1, 4000) end
+      ] ++ opts
+
+    case Req.request(req_opts) do
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
+        {:ok, body}
+
+      {:ok, %{status: 401}} ->
+        {:error, :unauthorized}
+
+      {:ok, %{status: 403}} ->
+        {:error, :forbidden}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: 422, body: body}} ->
+        {:error, {:unprocessable, body}}
+
+      {:ok, %{status: 429}} ->
+        {:error, :rate_limited}
+
+      {:ok, %{status: status, body: body}} when status >= 500 ->
+        {:error, {:server_error, %{status: status, body: body}}}
+
+      {:error, error} ->
+        {:error, {:network_error, error}}
+    end
+  rescue
+    error ->
+      {:error, {:invalid_response, error}}
+  end
+
   defp build_url(path) do
     base = Config.base_url()
+    base <> path
+  end
+
+  defp build_data_url(path) do
+    base = Config.data_url()
     base <> path
   end
 

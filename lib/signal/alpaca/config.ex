@@ -85,7 +85,7 @@ defmodule Signal.Alpaca.Config do
   end
 
   @doc """
-  Get REST API base URL with default.
+  Get REST API base URL for trading operations (account, orders, positions).
 
   ## Returns
 
@@ -100,6 +100,26 @@ defmodule Signal.Alpaca.Config do
   def base_url do
     config()
     |> Keyword.get(:base_url, "https://paper-api.alpaca.markets")
+  end
+
+  @doc """
+  Get REST API base URL for market data operations (bars, quotes, trades).
+
+  Market data always comes from data.alpaca.markets regardless of paper/live trading.
+
+  ## Returns
+
+    - String with the market data URL
+
+  ## Examples
+
+      iex> Signal.Alpaca.Config.data_url()
+      "https://data.alpaca.markets"
+  """
+  @spec data_url() :: String.t()
+  def data_url do
+    config()
+    |> Keyword.get(:data_url, "https://data.alpaca.markets")
   end
 
   @doc """
