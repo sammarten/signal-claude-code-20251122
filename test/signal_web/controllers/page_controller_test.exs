@@ -1,8 +1,8 @@
 defmodule SignalWeb.PageControllerTest do
   use SignalWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
+  test "GET / redirects to MarketLive", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+    assert html_response(conn, 200) =~ "Signal Market Data"
   end
 end
