@@ -188,7 +188,14 @@ defmodule Signal.MarketData.HistoricalLoader do
 
     years_with_data =
       Repo.all(query)
-      |> Enum.map(fn %{year: year} -> trunc(year) end)
+      |> Enum.map(fn %{year: year} ->
+        cond do
+          is_integer(year) -> year
+          is_float(year) -> trunc(year)
+          is_struct(year, Decimal) -> Decimal.to_integer(year)
+          true -> year
+        end
+      end)
 
     total_bars =
       from(b in Bar,

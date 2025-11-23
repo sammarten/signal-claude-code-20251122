@@ -407,7 +407,7 @@ defmodule Signal.Alpaca.Client do
   end
 
   # Market data request - uses data.alpaca.markets
-  defp data_request(method, path, opts \\ []) do
+  defp data_request(method, path, opts) do
     url = build_data_url(path)
 
     req_opts =
@@ -513,7 +513,9 @@ defmodule Signal.Alpaca.Client do
 
   defp parse_datetime!(iso8601_string) do
     case DateTime.from_iso8601(iso8601_string) do
-      {:ok, datetime, _offset} -> datetime
+      {:ok, datetime, _offset} ->
+        # Ensure microsecond precision for :utc_datetime_usec fields
+        DateTime.truncate(datetime, :microsecond)
       {:error, _} -> nil
     end
   end
