@@ -17,7 +17,7 @@ defmodule SignalWeb.Router do
   scope "/", SignalWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", MarketLive, :index
   end
 
   # Other scopes may use custom stacks.
