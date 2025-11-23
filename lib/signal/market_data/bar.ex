@@ -184,7 +184,9 @@ defmodule Signal.MarketData.Bar do
   """
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = bar) do
-    Map.from_struct(bar)
+    bar
+    |> Map.from_struct()
+    |> Map.drop([:__meta__])
   end
 
   @typedoc """
