@@ -173,9 +173,19 @@ defmodule Signal.Alpaca.Stream do
 
   @impl WebSockex
   def handle_connect(_conn, state) do
-    Logger.info("AlpacaStream connected to #{Config.ws_url()}")
-    deliver_callback_message(%{type: :connection, status: :connected, attempt: 0}, state)
-    {:ok, %{state | status: :connected, reconnect_attempt: 0}}
+    try do
+      Logger.info("AlpacaStream connected to #{Config.ws_url()}")
+      new_state = deliver_callback_message(%{type: :connection, status: :connected, attempt: 0}, state)
+      {:ok, %{new_state | status: :connected, reconnect_attempt: 0}}
+    rescue
+      error ->
+        Logger.error(
+          "Error in handle_connect: #{inspect(error)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
+        {:ok, %{state | status: :connected, reconnect_attempt: 0}}
+    end
   end
 
   @impl WebSockex
@@ -292,6 +302,11 @@ defmodule Signal.Alpaca.Stream do
 
       {:reply, {:text, msg}, state}
     end
+  end
+
+  def handle_info(msg, state) do
+    Logger.warning("Received unexpected message: #{inspect(msg)}")
+    {:ok, state}
   end
 
   @impl WebSockex
