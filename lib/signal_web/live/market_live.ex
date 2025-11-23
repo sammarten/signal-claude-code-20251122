@@ -315,8 +315,8 @@ defmodule SignalWeb.MarketLive do
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div class="flex items-center justify-between">
             <h1 class="text-3xl font-bold text-gray-900">Signal Market Data</h1>
-
-            <!-- Connection Status Badge -->
+            
+    <!-- Connection Status Badge -->
             <div class={[
               "px-4 py-2 rounded-full text-sm font-medium",
               connection_badge_class(@connection_status)
@@ -326,14 +326,14 @@ defmodule SignalWeb.MarketLive do
                   "w-2 h-2 rounded-full",
                   if(@connection_status == :connected, do: "bg-green-600", else: "bg-red-600")
                 ]} />
-                <%= connection_status_text(@connection_status, @connection_details) %>
+                {connection_status_text(@connection_status, @connection_details)}
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- Main Content -->
+      
+    <!-- Main Content -->
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <!-- System Stats Panel (Placeholder for Task 3.3) -->
         <div class="mb-8 bg-white rounded-lg shadow p-6">
@@ -342,19 +342,19 @@ defmodule SignalWeb.MarketLive do
             <div>
               <div class="text-sm text-gray-500">Quotes/sec</div>
               <div class="text-2xl font-bold text-gray-900">
-                <%= @system_stats.quotes_per_sec %>
+                {@system_stats.quotes_per_sec}
               </div>
             </div>
             <div>
               <div class="text-sm text-gray-500">Bars/min</div>
               <div class="text-2xl font-bold text-gray-900">
-                <%= @system_stats.bars_per_min %>
+                {@system_stats.bars_per_min}
               </div>
             </div>
             <div>
               <div class="text-sm text-gray-500">Uptime</div>
               <div class="text-2xl font-bold text-gray-900">
-                <%= format_uptime(@system_stats.uptime_seconds) %>
+                {format_uptime(@system_stats.uptime_seconds)}
               </div>
             </div>
             <div>
@@ -363,13 +363,13 @@ defmodule SignalWeb.MarketLive do
                 "text-2xl font-bold",
                 if(@system_stats.db_healthy, do: "text-green-600", else: "text-red-600")
               ]}>
-                <%= if @system_stats.db_healthy, do: "Healthy", else: "Error" %>
+                {if @system_stats.db_healthy, do: "Healthy", else: "Error"}
               </div>
             </div>
           </div>
         </div>
-
-        <!-- Symbol Table -->
+        
+    <!-- Symbol Table -->
         <div class="bg-white shadow rounded-lg overflow-hidden">
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
@@ -415,40 +415,40 @@ defmodule SignalWeb.MarketLive do
                   <% data = Map.get(@symbol_data, symbol, initial_symbol_data(symbol)) %>
                   <tr class="hover:bg-gray-50 even:bg-gray-50">
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      <%= symbol %>
+                      {symbol}
                     </td>
                     <td class={[
                       "px-6 py-4 whitespace-nowrap text-sm font-mono text-right font-semibold",
                       price_change_class(data.price_change)
                     ]}>
-                      $<%= format_price(data.current_price) %>
+                      ${format_price(data.current_price)}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      $<%= format_price(data.bid) %>
+                      ${format_price(data.bid)}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      $<%= format_price(data.ask) %>
+                      ${format_price(data.ask)}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      $<%= format_price(data.spread) %>
+                      ${format_price(data.spread)}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      <%= if data.last_bar, do: "$#{format_price(data.last_bar.open)}", else: "-" %>
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.open)}", else: "-"}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      <%= if data.last_bar, do: "$#{format_price(data.last_bar.high)}", else: "-" %>
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.high)}", else: "-"}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      <%= if data.last_bar, do: "$#{format_price(data.last_bar.low)}", else: "-" %>
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.low)}", else: "-"}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      <%= if data.last_bar, do: "$#{format_price(data.last_bar.close)}", else: "-" %>
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.close)}", else: "-"}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
-                      <%= if data.last_bar, do: format_volume(data.last_bar.volume), else: "-" %>
+                      {if data.last_bar, do: format_volume(data.last_bar.volume), else: "-"}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                      <%= time_ago(data.last_update) %>
+                      {time_ago(data.last_update)}
                     </td>
                   </tr>
                 <% end %>
