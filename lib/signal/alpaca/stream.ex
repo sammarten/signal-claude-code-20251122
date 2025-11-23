@@ -352,7 +352,12 @@ defmodule Signal.Alpaca.Stream do
       deliver_callback_message(quote, state)
     rescue
       error ->
-        Logger.error("Error normalizing quote: #{inspect(error)}, message: #{inspect(msg)}")
+        Logger.error(
+          "Error normalizing quote: #{inspect(error)}\n" <>
+            "Message: #{inspect(msg)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
         state
     end
   end
@@ -363,7 +368,12 @@ defmodule Signal.Alpaca.Stream do
       deliver_callback_message(bar, state)
     rescue
       error ->
-        Logger.error("Error normalizing bar: #{inspect(error)}, message: #{inspect(msg)}")
+        Logger.error(
+          "Error normalizing bar: #{inspect(error)}\n" <>
+            "Message: #{inspect(msg)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
         state
     end
   end
@@ -374,7 +384,12 @@ defmodule Signal.Alpaca.Stream do
       deliver_callback_message(trade, state)
     rescue
       error ->
-        Logger.error("Error normalizing trade: #{inspect(error)}, message: #{inspect(msg)}")
+        Logger.error(
+          "Error normalizing trade: #{inspect(error)}\n" <>
+            "Message: #{inspect(msg)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
         state
     end
   end
@@ -385,7 +400,12 @@ defmodule Signal.Alpaca.Stream do
       deliver_callback_message(status, state)
     rescue
       error ->
-        Logger.error("Error normalizing status: #{inspect(error)}, message: #{inspect(msg)}")
+        Logger.error(
+          "Error normalizing status: #{inspect(error)}\n" <>
+            "Message: #{inspect(msg)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
         state
     end
   end
@@ -492,9 +512,9 @@ defmodule Signal.Alpaca.Stream do
         {:ok, new_callback_state} ->
           %{state | callback_state: new_callback_state}
 
-        _ ->
+        other ->
           Logger.warning(
-            "Callback module #{state.callback_module} returned invalid response"
+            "Callback module #{state.callback_module} returned invalid response: #{inspect(other)}"
           )
 
           state
@@ -502,7 +522,9 @@ defmodule Signal.Alpaca.Stream do
     rescue
       error ->
         Logger.error(
-          "Error in callback module #{state.callback_module}: #{inspect(error)}"
+          "Error in callback module #{state.callback_module}: #{inspect(error)}\n" <>
+            "Message: #{inspect(message)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
         )
 
         state
