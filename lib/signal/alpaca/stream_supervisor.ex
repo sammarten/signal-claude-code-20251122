@@ -17,7 +17,7 @@ defmodule Signal.Alpaca.StreamSupervisor do
 
   use Supervisor
   require Logger
-  alias Signal.Alpaca.{Config, Stream, StreamHandler}
+  alias Signal.Alpaca.{Config, Stream, StreamHandler, MockStream}
 
   @doc """
   Start the supervisor.
@@ -37,28 +37,36 @@ defmodule Signal.Alpaca.StreamSupervisor do
 
   @impl Supervisor
   def init(_opts) do
-    if Config.configured?() do
-      Logger.info("Starting Alpaca stream with configured credentials")
+    use_mock = Application.get_env(:signal, :use_mock_stream, false)
 
-      children = [build_stream_child_spec()]
+    cond do
+      use_mock ->
+        Logger.info("Starting MockStream for development (credentials not required)")
+        children = [build_stream_child_spec(MockStream)]
+        Supervisor.init(children, strategy: :one_for_one)
 
-      Supervisor.init(children, strategy: :one_for_one)
-    else
-      Logger.warning(
-        "Alpaca credentials not configured. Stream will not start. " <>
-          "Set ALPACA_API_KEY and ALPACA_API_SECRET environment variables."
-      )
+      Config.configured?() ->
+        Logger.info("Starting Alpaca stream with configured credentials")
+        children = [build_stream_child_spec(Stream)]
+        Supervisor.init(children, strategy: :one_for_one)
 
-      :ignore
+      true ->
+        Logger.warning(
+          "Alpaca credentials not configured. Stream will not start. " <>
+            "Set ALPACA_API_KEY and ALPACA_API_SECRET environment variables, " <>
+            "or set use_mock_stream: true in config for development."
+        )
+
+        :ignore
     end
   end
 
   # Private functions
 
-  defp build_stream_child_spec do
+  defp build_stream_child_spec(stream_module) do
     symbols = get_configured_symbols()
 
-    {Stream,
+    {stream_module,
      callback_module: StreamHandler,
      callback_state: %{
        last_quotes: %{},
@@ -70,7 +78,7 @@ defmodule Signal.Alpaca.StreamSupervisor do
        quotes: symbols,
        statuses: ["*"]
      },
-     name: Stream}
+     name: stream_module}
   end
 
   defp get_configured_symbols do
