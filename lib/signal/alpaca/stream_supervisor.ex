@@ -57,7 +57,6 @@ defmodule Signal.Alpaca.StreamSupervisor do
 
   defp build_stream_child_spec do
     symbols = get_configured_symbols()
-    symbol_strings = Enum.map(symbols, &Atom.to_string/1)
 
     {Stream,
      callback_module: StreamHandler,
@@ -67,8 +66,8 @@ defmodule Signal.Alpaca.StreamSupervisor do
        last_log: DateTime.utc_now()
      },
      initial_subscriptions: %{
-       bars: symbol_strings,
-       quotes: symbol_strings,
+       bars: symbols,
+       quotes: symbols,
        statuses: ["*"]
      },
      name: Stream}
