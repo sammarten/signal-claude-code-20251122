@@ -347,23 +347,47 @@ defmodule Signal.Alpaca.Stream do
 
   # Data messages
   defp process_message(%{"T" => "q"} = msg, state) do
-    quote = normalize_quote(msg)
-    deliver_callback_message(quote, state)
+    try do
+      quote = normalize_quote(msg)
+      deliver_callback_message(quote, state)
+    rescue
+      error ->
+        Logger.error("Error normalizing quote: #{inspect(error)}, message: #{inspect(msg)}")
+        state
+    end
   end
 
   defp process_message(%{"T" => "b"} = msg, state) do
-    bar = normalize_bar(msg)
-    deliver_callback_message(bar, state)
+    try do
+      bar = normalize_bar(msg)
+      deliver_callback_message(bar, state)
+    rescue
+      error ->
+        Logger.error("Error normalizing bar: #{inspect(error)}, message: #{inspect(msg)}")
+        state
+    end
   end
 
   defp process_message(%{"T" => "t"} = msg, state) do
-    trade = normalize_trade(msg)
-    deliver_callback_message(trade, state)
+    try do
+      trade = normalize_trade(msg)
+      deliver_callback_message(trade, state)
+    rescue
+      error ->
+        Logger.error("Error normalizing trade: #{inspect(error)}, message: #{inspect(msg)}")
+        state
+    end
   end
 
   defp process_message(%{"T" => "s"} = msg, state) do
-    status = normalize_status(msg)
-    deliver_callback_message(status, state)
+    try do
+      status = normalize_status(msg)
+      deliver_callback_message(status, state)
+    rescue
+      error ->
+        Logger.error("Error normalizing status: #{inspect(error)}, message: #{inspect(msg)}")
+        state
+    end
   end
 
   defp process_message(msg, state) do
@@ -424,16 +448,26 @@ defmodule Signal.Alpaca.Stream do
 
   defp parse_datetime!(nil), do: nil
 
-  defp parse_datetime!(iso8601_string) do
+  defp parse_datetime!(iso8601_string) when is_binary(iso8601_string) do
     case DateTime.from_iso8601(iso8601_string) do
       {:ok, datetime, _offset} -> datetime
       {:error, _} -> nil
     end
   end
 
+  defp parse_datetime!(value) do
+    Logger.warning("Unexpected value type in parse_datetime!: #{inspect(value)}")
+    nil
+  end
+
   defp parse_decimal(nil), do: nil
   defp parse_decimal(value) when is_number(value), do: Decimal.new(to_string(value))
   defp parse_decimal(value) when is_binary(value), do: Decimal.new(value)
+
+  defp parse_decimal(value) do
+    Logger.warning("Unexpected value type in parse_decimal: #{inspect(value)}")
+    nil
+  end
 
   defp calculate_backoff(attempt) do
     # Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, max 60s
