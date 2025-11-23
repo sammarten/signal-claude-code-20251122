@@ -255,10 +255,18 @@ defmodule Signal.MarketData.Verifier do
         gaps =
           rows
           |> Enum.map(fn [bar_time, next_bar, gap_minutes] ->
+            # Convert gap_minutes to integer (PostgreSQL may return Decimal/float)
+            minutes = cond do
+              is_integer(gap_minutes) -> gap_minutes
+              is_float(gap_minutes) -> trunc(gap_minutes)
+              is_struct(gap_minutes, Decimal) -> Decimal.to_integer(gap_minutes)
+              true -> 0
+            end
+
             %{
               start: bar_time,
               end: next_bar,
-              missing_minutes: trunc(gap_minutes)
+              missing_minutes: minutes
             }
           end)
 
