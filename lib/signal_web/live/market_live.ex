@@ -1,5 +1,6 @@
 defmodule SignalWeb.MarketLive do
   use SignalWeb, :live_view
+  alias SignalWeb.Live.Components.SystemStats
 
   @moduledoc """
   Real-time market data dashboard displaying live quotes, bars, and system health.
@@ -335,38 +336,13 @@ defmodule SignalWeb.MarketLive do
       
     <!-- Main Content -->
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- System Stats Panel (Placeholder for Task 3.3) -->
-        <div class="mb-8 bg-white rounded-lg shadow p-6">
-          <h2 class="text-lg font-semibold text-gray-900 mb-4">System Stats</h2>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <div class="text-sm text-gray-500">Quotes/sec</div>
-              <div class="text-2xl font-bold text-gray-900">
-                {@system_stats.quotes_per_sec}
-              </div>
-            </div>
-            <div>
-              <div class="text-sm text-gray-500">Bars/min</div>
-              <div class="text-2xl font-bold text-gray-900">
-                {@system_stats.bars_per_min}
-              </div>
-            </div>
-            <div>
-              <div class="text-sm text-gray-500">Uptime</div>
-              <div class="text-2xl font-bold text-gray-900">
-                {format_uptime(@system_stats.uptime_seconds)}
-              </div>
-            </div>
-            <div>
-              <div class="text-sm text-gray-500">Database</div>
-              <div class={[
-                "text-2xl font-bold",
-                if(@system_stats.db_healthy, do: "text-green-600", else: "text-red-600")
-              ]}>
-                {if @system_stats.db_healthy, do: "Healthy", else: "Error"}
-              </div>
-            </div>
-          </div>
+        <!-- System Stats Component -->
+        <div class="mb-8">
+          <SystemStats.system_stats
+            connection_status={@connection_status}
+            connection_details={@connection_details}
+            stats={@system_stats}
+          />
         </div>
         
     <!-- Symbol Table -->
@@ -460,17 +436,4 @@ defmodule SignalWeb.MarketLive do
     </div>
     """
   end
-
-  defp format_uptime(seconds) when is_integer(seconds) do
-    hours = div(seconds, 3600)
-    minutes = div(rem(seconds, 3600), 60)
-
-    cond do
-      hours > 0 -> "#{hours}h #{minutes}m"
-      minutes > 0 -> "#{minutes}m"
-      true -> "#{seconds}s"
-    end
-  end
-
-  defp format_uptime(_), do: "0s"
 end
