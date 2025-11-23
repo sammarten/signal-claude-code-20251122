@@ -90,22 +90,8 @@ defmodule Signal.MarketData.Bar do
     |> validate_number(:trade_count, greater_than_or_equal_to: 0)
   end
 
-  @doc """
-  Validates OHLC price relationships.
-
-  Ensures that:
-  - High is greater than or equal to both open and close
-  - Low is less than or equal to both open and close
-
-  ## Parameters
-
-    * `changeset` - The changeset to validate
-
-  ## Returns
-
-  The changeset with errors added if validation fails
-  """
-  @spec validate_ohlc_relationships(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  # Validates OHLC price relationships.
+  # Ensures high >= open/close and low <= open/close
   defp validate_ohlc_relationships(changeset) do
     open = get_field(changeset, :open)
     high = get_field(changeset, :high)

@@ -99,9 +99,7 @@ defmodule Signal.MarketData.Verifier do
   ## Examples
 
       {:ok, reports} = verify_all()
-      Enum.each(reports, fn report ->
-        IO.puts("#{report.symbol}: #{report.total_bars} bars, #{length(report.issues)} issue types")
-      end)
+      # Returns list of report maps, one per symbol
   """
   @spec verify_all() :: {:ok, [map()]} | {:error, term()}
   def verify_all do
