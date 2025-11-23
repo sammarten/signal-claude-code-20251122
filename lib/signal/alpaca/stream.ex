@@ -304,8 +304,30 @@ defmodule Signal.Alpaca.Stream do
     end
   end
 
+  # Handle GenServer calls that come through handle_info (WebSockex routing)
+  def handle_info({:"$gen_call", from, :status}, state) do
+    GenServer.reply(from, state.status)
+    {:ok, state}
+  end
+
+  def handle_info({:"$gen_call", from, :subscriptions}, state) do
+    GenServer.reply(from, state.subscriptions)
+    {:ok, state}
+  end
+
+  def handle_info({:"$gen_call", from, msg}, state) do
+    Logger.warning("Received unexpected gen_call in handle_info: #{inspect(msg)}")
+    GenServer.reply(from, {:error, :not_implemented})
+    {:ok, state}
+  end
+
+  def handle_info({:"$gen_cast", _msg}, state) do
+    # GenServer casts go to handle_cast
+    {:ok, state}
+  end
+
   def handle_info(msg, state) do
-    Logger.warning("Received unexpected message: #{inspect(msg)}")
+    Logger.debug("Received unexpected message in handle_info: #{inspect(msg)}")
     {:ok, state}
   end
 
