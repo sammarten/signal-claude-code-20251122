@@ -180,13 +180,33 @@ defmodule Signal.Alpaca.Stream do
 
   @impl WebSockex
   def handle_frame({:text, msg}, state) do
-    case Jason.decode(msg) do
-      {:ok, messages} when is_list(messages) ->
-        new_state = Enum.reduce(messages, state, &process_message/2)
-        {:ok, new_state}
+    try do
+      case Jason.decode(msg) do
+        {:ok, messages} when is_list(messages) ->
+          new_state = Enum.reduce(messages, state, &process_message/2)
+          {:ok, new_state}
 
-      {:error, error} ->
-        Logger.warning("Failed to parse WebSocket message: #{inspect(error)}")
+        {:ok, single_message} when is_map(single_message) ->
+          # Handle single message (not in array)
+          new_state = process_message(single_message, state)
+          {:ok, new_state}
+
+        {:ok, other} ->
+          Logger.warning("Unexpected JSON structure: #{inspect(other)}")
+          {:ok, state}
+
+        {:error, error} ->
+          Logger.warning("Failed to parse WebSocket message: #{inspect(error)}")
+          {:ok, state}
+      end
+    rescue
+      error ->
+        Logger.error(
+          "Error in handle_frame: #{inspect(error)}\n" <>
+            "Raw message: #{inspect(msg)}\n" <>
+            "Stacktrace: #{Exception.format_stacktrace(__STACKTRACE__)}"
+        )
+
         {:ok, state}
     end
   end
