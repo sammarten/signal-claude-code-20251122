@@ -515,7 +515,9 @@ defmodule Signal.Alpaca.Client do
     case DateTime.from_iso8601(iso8601_string) do
       {:ok, datetime, _offset} ->
         # Ensure microsecond precision for :utc_datetime_usec fields
-        DateTime.truncate(datetime, :microsecond)
+        # Alpaca returns timestamps like "2025-01-01T00:03:00Z" without microseconds
+        # Add microseconds if missing by setting precision to 6 digits
+        %{datetime | microsecond: {elem(datetime.microsecond, 0), 6}}
       {:error, _} -> nil
     end
   end
