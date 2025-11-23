@@ -175,7 +175,10 @@ defmodule Signal.Alpaca.Stream do
   def handle_connect(_conn, state) do
     try do
       Logger.info("AlpacaStream connected to #{Config.ws_url()}")
-      new_state = deliver_callback_message(%{type: :connection, status: :connected, attempt: 0}, state)
+
+      new_state =
+        deliver_callback_message(%{type: :connection, status: :connected, attempt: 0}, state)
+
       {:ok, %{new_state | status: :connected, reconnect_attempt: 0}}
     rescue
       error ->
@@ -344,9 +347,7 @@ defmodule Signal.Alpaca.Stream do
     attempt = state.reconnect_attempt + 1
     delay = calculate_backoff(attempt)
 
-    Logger.info(
-      "AlpacaStream reconnecting in #{div(delay, 1000)}s (attempt #{attempt})"
-    )
+    Logger.info("AlpacaStream reconnecting in #{div(delay, 1000)}s (attempt #{attempt})")
 
     {:reconnect, delay, %{state | status: :disconnected, reconnect_attempt: attempt}}
   end
