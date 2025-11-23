@@ -56,7 +56,7 @@ defmodule SignalWeb.Live.Components.SystemStats do
           <!-- Connection Status -->
           <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
             <div class="flex items-center gap-2 mb-2">
-              <.icon name="hero-wifi" class={["size-5", connection_icon_class(@connection_status)]} />
+              <.icon name="hero-wifi" class={"size-5 #{connection_icon_class(@connection_status)}"} />
               <div class="text-sm font-medium text-gray-500">Connection</div>
             </div>
             <div class="text-lg font-bold text-gray-900">
@@ -94,7 +94,7 @@ defmodule SignalWeb.Live.Components.SystemStats do
           <!-- Database Health -->
           <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
             <div class="flex items-center gap-2 mb-2">
-              <.icon name="hero-circle-stack" class={["size-5", db_icon_class(@stats.db_healthy)]} />
+              <.icon name="hero-circle-stack" class={"size-5 #{db_icon_class(@stats.db_healthy)}"} />
               <div class="text-sm font-medium text-gray-500">Database</div>
             </div>
             <div class={["text-lg font-bold", db_text_class(@stats.db_healthy)]}>
@@ -150,7 +150,7 @@ defmodule SignalWeb.Live.Components.SystemStats do
             <div class="flex items-center gap-2">
               <.icon
                 name="hero-building-office-2"
-                class={["size-4", if(market_open?(), do: "text-green-500", else: "text-gray-400")]}
+                class={"size-4 #{if market_open?(), do: "text-green-500", else: "text-gray-400"}"}
               />
               <span class="text-sm font-medium text-gray-700">Market Status</span>
             </div>
