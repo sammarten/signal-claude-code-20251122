@@ -239,7 +239,12 @@ defmodule Signal.IntegrationTest do
       }
 
       # Broadcast messages
-      Phoenix.PubSub.broadcast(Signal.PubSub, "quotes:#{test_symbol}", {:quote, test_symbol, quote_msg})
+      Phoenix.PubSub.broadcast(
+        Signal.PubSub,
+        "quotes:#{test_symbol}",
+        {:quote, test_symbol, quote_msg}
+      )
+
       Phoenix.PubSub.broadcast(Signal.PubSub, "bars:#{test_symbol}", {:bar, test_symbol, bar_msg})
 
       # Should receive messages

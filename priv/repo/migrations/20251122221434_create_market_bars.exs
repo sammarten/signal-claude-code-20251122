@@ -4,8 +4,8 @@ defmodule Signal.Repo.Migrations.CreateMarketBars do
   def up do
     # Create table with composite primary key
     create table(:market_bars, primary_key: false) do
-      add :symbol, :string, null: false
-      add :bar_time, :utc_datetime_usec, null: false
+      add :symbol, :text, null: false
+      add :bar_time, :timestamptz, null: false
       add :open, :decimal, precision: 10, scale: 2, null: false
       add :high, :decimal, precision: 10, scale: 2, null: false
       add :low, :decimal, precision: 10, scale: 2, null: false

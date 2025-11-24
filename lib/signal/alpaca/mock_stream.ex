@@ -239,12 +239,26 @@ defmodule Signal.Alpaca.MockStream do
     high_pct = :rand.uniform() * 0.02
     low_pct = :rand.uniform() * 0.02
 
-    high = Decimal.mult(close_price, Decimal.add(Decimal.new("1"), Decimal.new(Float.to_string(high_pct))))
-    low = Decimal.mult(close_price, Decimal.sub(Decimal.new("1"), Decimal.new(Float.to_string(low_pct))))
+    high =
+      Decimal.mult(
+        close_price,
+        Decimal.add(Decimal.new("1"), Decimal.new(Float.to_string(high_pct)))
+      )
+
+    low =
+      Decimal.mult(
+        close_price,
+        Decimal.sub(Decimal.new("1"), Decimal.new(Float.to_string(low_pct)))
+      )
 
     # Open is random between low and high
     open_pct = :rand.uniform()
-    open_val = Decimal.add(low, Decimal.mult(Decimal.sub(high, low), Decimal.new(Float.to_string(open_pct))))
+
+    open_val =
+      Decimal.add(
+        low,
+        Decimal.mult(Decimal.sub(high, low), Decimal.new(Float.to_string(open_pct)))
+      )
 
     # Generate volume (100k to 2M)
     volume = :rand.uniform(1_900_000) + 100_000
