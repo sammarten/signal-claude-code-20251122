@@ -148,58 +148,12 @@ defmodule Signal.Technicals.StructureDetector do
       nil
   """
   @spec detect_bos(list(Bar.t()), list(map()), atom()) :: map() | nil
-  def detect_bos(bars, swings, trend) when trend in [:bullish, :bearish] do
-    if Enum.empty?(bars) or Enum.empty?(swings) do
-      nil
-    else
-      latest_bar = List.last(bars)
+  def detect_bos(bars, swings, :bullish) do
+    detect_structure_break(bars, swings, :high, :gt, :bullish)
+  end
 
-      case trend do
-        :bullish ->
-          # Look for break above previous swing high
-          swing_highs = Enum.filter(swings, &(&1.type == :high))
-
-          if Enum.empty?(swing_highs) do
-            nil
-          else
-            prev_swing = List.last(swing_highs)
-
-            if Decimal.compare(latest_bar.close, prev_swing.price) == :gt do
-              %{
-                type: :bullish,
-                price: latest_bar.close,
-                bar_time: latest_bar.bar_time,
-                index: length(bars) - 1,
-                broken_swing: prev_swing
-              }
-            else
-              nil
-            end
-          end
-
-        :bearish ->
-          # Look for break below previous swing low
-          swing_lows = Enum.filter(swings, &(&1.type == :low))
-
-          if Enum.empty?(swing_lows) do
-            nil
-          else
-            prev_swing = List.last(swing_lows)
-
-            if Decimal.compare(latest_bar.close, prev_swing.price) == :lt do
-              %{
-                type: :bearish,
-                price: latest_bar.close,
-                bar_time: latest_bar.bar_time,
-                index: length(bars) - 1,
-                broken_swing: prev_swing
-              }
-            else
-              nil
-            end
-          end
-      end
-    end
+  def detect_bos(bars, swings, :bearish) do
+    detect_structure_break(bars, swings, :low, :lt, :bearish)
   end
 
   def detect_bos(_bars, _swings, :ranging), do: nil
@@ -241,58 +195,14 @@ defmodule Signal.Technicals.StructureDetector do
       nil
   """
   @spec detect_choch(list(Bar.t()), list(map()), atom()) :: map() | nil
-  def detect_choch(bars, swings, trend) when trend in [:bullish, :bearish] do
-    if Enum.empty?(bars) or Enum.empty?(swings) do
-      nil
-    else
-      latest_bar = List.last(bars)
+  def detect_choch(bars, swings, :bullish) do
+    # In uptrend, ChoCh = break below swing low (bearish reversal)
+    detect_structure_break(bars, swings, :low, :lt, :bearish)
+  end
 
-      case trend do
-        :bullish ->
-          # In uptrend, ChoCh = break below swing low (bearish reversal)
-          swing_lows = Enum.filter(swings, &(&1.type == :low))
-
-          if Enum.empty?(swing_lows) do
-            nil
-          else
-            prev_swing = List.last(swing_lows)
-
-            if Decimal.compare(latest_bar.close, prev_swing.price) == :lt do
-              %{
-                type: :bearish,
-                price: latest_bar.close,
-                bar_time: latest_bar.bar_time,
-                index: length(bars) - 1,
-                broken_swing: prev_swing
-              }
-            else
-              nil
-            end
-          end
-
-        :bearish ->
-          # In downtrend, ChoCh = break above swing high (bullish reversal)
-          swing_highs = Enum.filter(swings, &(&1.type == :high))
-
-          if Enum.empty?(swing_highs) do
-            nil
-          else
-            prev_swing = List.last(swing_highs)
-
-            if Decimal.compare(latest_bar.close, prev_swing.price) == :gt do
-              %{
-                type: :bullish,
-                price: latest_bar.close,
-                bar_time: latest_bar.bar_time,
-                index: length(bars) - 1,
-                broken_swing: prev_swing
-              }
-            else
-              nil
-            end
-          end
-      end
-    end
+  def detect_choch(bars, swings, :bearish) do
+    # In downtrend, ChoCh = break above swing high (bullish reversal)
+    detect_structure_break(bars, swings, :high, :gt, :bullish)
   end
 
   def detect_choch(_bars, _swings, :ranging), do: nil
@@ -390,45 +300,49 @@ defmodule Signal.Technicals.StructureDetector do
 
   # Private Helper Functions
 
-  defp higher_highs?(swing_highs) when length(swing_highs) >= 2 do
-    swing_highs
+  defp detect_structure_break(bars, swings, swing_type, comparison, result_type) do
+    if Enum.empty?(bars) or Enum.empty?(swings) do
+      nil
+    else
+      latest_bar = List.last(bars)
+      filtered_swings = Enum.filter(swings, &(&1.type == swing_type))
+
+      if Enum.empty?(filtered_swings) do
+        nil
+      else
+        prev_swing = List.last(filtered_swings)
+
+        if Decimal.compare(latest_bar.close, prev_swing.price) == comparison do
+          %{
+            type: result_type,
+            price: latest_bar.close,
+            bar_time: latest_bar.bar_time,
+            index: length(bars) - 1,
+            broken_swing: prev_swing
+          }
+        else
+          nil
+        end
+      end
+    end
+  end
+
+  defp swings_trending?(swings, direction) when length(swings) >= 2 do
+    comparison = if direction == :up, do: :gt, else: :lt
+
+    swings
     |> Enum.chunk_every(2, 1, :discard)
     |> Enum.all?(fn [prev, curr] ->
-      Decimal.compare(curr.price, prev.price) == :gt
+      Decimal.compare(curr.price, prev.price) == comparison
     end)
   end
 
-  defp higher_highs?(_), do: false
+  defp swings_trending?(_swings, _direction), do: false
 
-  defp higher_lows?(swing_lows) when length(swing_lows) >= 2 do
-    swing_lows
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.all?(fn [prev, curr] ->
-      Decimal.compare(curr.price, prev.price) == :gt
-    end)
-  end
-
-  defp higher_lows?(_), do: false
-
-  defp lower_highs?(swing_highs) when length(swing_highs) >= 2 do
-    swing_highs
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.all?(fn [prev, curr] ->
-      Decimal.compare(curr.price, prev.price) == :lt
-    end)
-  end
-
-  defp lower_highs?(_), do: false
-
-  defp lower_lows?(swing_lows) when length(swing_lows) >= 2 do
-    swing_lows
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.all?(fn [prev, curr] ->
-      Decimal.compare(curr.price, prev.price) == :lt
-    end)
-  end
-
-  defp lower_lows?(_), do: false
+  defp higher_highs?(swing_highs), do: swings_trending?(swing_highs, :up)
+  defp higher_lows?(swing_lows), do: swings_trending?(swing_lows, :up)
+  defp lower_highs?(swing_highs), do: swings_trending?(swing_highs, :down)
+  defp lower_lows?(swing_lows), do: swings_trending?(swing_lows, :down)
 
   defp detect_latest_bos(bars, swing_highs, swing_lows, trend) do
     all_swings = (swing_highs ++ swing_lows) |> Enum.sort_by(& &1.index)

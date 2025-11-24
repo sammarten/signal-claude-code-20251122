@@ -257,59 +257,11 @@ defmodule Signal.Technicals.Levels do
           quarter: Decimal.t()
         }
   def find_nearest_psychological(price) do
-    # Whole number
-    whole_down = Decimal.round(price, 0, :down)
-    whole_up = Decimal.add(whole_down, Decimal.new(1))
-
-    whole =
-      if Decimal.compare(
-           Decimal.sub(price, whole_down),
-           Decimal.sub(whole_up, price)
-         ) == :lt do
-        whole_down
-      else
-        whole_up
-      end
-
-    # Half number
-    half_down =
-      Decimal.mult(
-        Decimal.round(Decimal.div(price, Decimal.new("0.5")), 0, :down),
-        Decimal.new("0.5")
-      )
-
-    half_up = Decimal.add(half_down, Decimal.new("0.5"))
-
-    half =
-      if Decimal.compare(
-           Decimal.sub(price, half_down),
-           Decimal.sub(half_up, price)
-         ) == :lt do
-        half_down
-      else
-        half_up
-      end
-
-    # Quarter number
-    quarter_down =
-      Decimal.mult(
-        Decimal.round(Decimal.div(price, Decimal.new("0.25")), 0, :down),
-        Decimal.new("0.25")
-      )
-
-    quarter_up = Decimal.add(quarter_down, Decimal.new("0.25"))
-
-    quarter =
-      if Decimal.compare(
-           Decimal.sub(price, quarter_down),
-           Decimal.sub(quarter_up, price)
-         ) == :lt do
-        quarter_down
-      else
-        quarter_up
-      end
-
-    %{whole: whole, half: half, quarter: quarter}
+    %{
+      whole: find_nearest_level(price, Decimal.new("1")),
+      half: find_nearest_level(price, Decimal.new("0.5")),
+      quarter: find_nearest_level(price, Decimal.new("0.25"))
+    }
   end
 
   @doc """
@@ -375,6 +327,28 @@ defmodule Signal.Technicals.Levels do
   end
 
   # Private Helper Functions
+
+  defp find_nearest_level(price, increment) do
+    # Calculate the level below current price
+    level_down =
+      Decimal.mult(
+        Decimal.round(Decimal.div(price, increment), 0, :down),
+        increment
+      )
+
+    # Calculate the level above current price
+    level_up = Decimal.add(level_down, increment)
+
+    # Find which level is closer
+    distance_to_down = Decimal.sub(price, level_down)
+    distance_to_up = Decimal.sub(level_up, price)
+
+    if Decimal.compare(distance_to_down, distance_to_up) == :lt do
+      level_down
+    else
+      level_up
+    end
+  end
 
   defp get_previous_day_bars(symbol, date) do
     prev_date = get_previous_trading_day(date)
