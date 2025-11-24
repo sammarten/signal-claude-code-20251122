@@ -4,11 +4,11 @@ defmodule Signal.Repo.Migrations.CreateMarketStructure do
   def up do
     # Create table with composite primary key
     create table(:market_structure, primary_key: false) do
-      add :symbol, :string, null: false
-      add :timeframe, :string, null: false
-      add :bar_time, :utc_datetime_usec, null: false
-      add :trend, :string
-      add :swing_type, :string
+      add :symbol, :text, null: false
+      add :timeframe, :text, null: false
+      add :bar_time, :timestamptz, null: false
+      add :trend, :text
+      add :swing_type, :text
       add :swing_price, :decimal, precision: 10, scale: 2
       add :bos_detected, :boolean, default: false, null: false
       add :choch_detected, :boolean, default: false, null: false

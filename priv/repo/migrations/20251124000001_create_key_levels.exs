@@ -4,7 +4,7 @@ defmodule Signal.Repo.Migrations.CreateKeyLevels do
   def up do
     # Create table with composite primary key
     create table(:key_levels, primary_key: false) do
-      add :symbol, :string, null: false
+      add :symbol, :text, null: false
       add :date, :date, null: false
       add :previous_day_high, :decimal, precision: 10, scale: 2
       add :previous_day_low, :decimal, precision: 10, scale: 2
