@@ -1,5 +1,6 @@
 defmodule SignalWeb.MarketLive do
   use SignalWeb, :live_view
+  import Ecto.Query
   alias SignalWeb.Live.Components.SystemStats
 
   @moduledoc """
@@ -37,10 +38,23 @@ defmodule SignalWeb.MarketLive do
     # This ensures we show the correct status even if the stream connected before LiveView mounted
     {connection_status, db_healthy, last_message} = get_initial_monitor_stats()
 
+    # Load chart data once (only for the first 4 symbols shown in charts)
+    # This prevents expensive DB queries on every render
+    chart_data =
+      if connected?(socket) do
+        symbols
+        |> Enum.take(4)
+        |> Enum.map(fn symbol -> {symbol, get_recent_bars_for_chart(symbol)} end)
+        |> Map.new()
+      else
+        %{}
+      end
+
     {:ok,
      assign(socket,
        symbols: symbols,
        symbol_data: symbol_data,
+       chart_data: chart_data,
        connection_status: connection_status,
        connection_details: %{},
        system_stats: %{
@@ -87,6 +101,24 @@ defmodule SignalWeb.MarketLive do
     # Update assigns
     symbol_data = Map.put(socket.assigns.symbol_data, symbol, updated_data)
 
+    # Push price update to chart (for real-time candle updates)
+    # Only push if this symbol is in the first 4 (shown in charts)
+    socket =
+      if symbol in Enum.take(socket.assigns.symbols, 4) do
+        # Truncate timestamp to current minute for candle time
+        bar_time = DateTime.truncate(quote.timestamp, :second)
+        bar_time_unix = DateTime.to_unix(bar_time) - rem(DateTime.to_unix(bar_time), 60)
+
+        price_data = %{
+          time: bar_time_unix,
+          price: Decimal.to_string(new_price)
+        }
+
+        push_event(socket, "price-update-#{symbol}", %{data: price_data})
+      else
+        socket
+      end
+
     {:noreply, assign(socket, :symbol_data, symbol_data)}
   end
 
@@ -122,7 +154,22 @@ defmodule SignalWeb.MarketLive do
     # Update assigns
     symbol_data = Map.put(socket.assigns.symbol_data, symbol, updated_data)
 
-    {:noreply, assign(socket, :symbol_data, symbol_data)}
+    # Push bar update to the chart hook
+    bar_data = %{
+      time: DateTime.to_unix(bar.timestamp),
+      open: Decimal.to_string(bar.open),
+      high: Decimal.to_string(bar.high),
+      low: Decimal.to_string(bar.low),
+      close: Decimal.to_string(bar.close),
+      volume: bar.volume
+    }
+
+    socket =
+      socket
+      |> assign(:symbol_data, symbol_data)
+      |> push_event("bar-update-#{symbol}", %{bar: bar_data})
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -138,7 +185,21 @@ defmodule SignalWeb.MarketLive do
   def handle_info(stats_map, socket) when is_map(stats_map) do
     # Handle system stats from PubSub
     if Map.has_key?(stats_map, :quotes_per_sec) do
-      {:noreply, assign(socket, :system_stats, stats_map)}
+      # Normalize the stats structure to match what SystemStats component expects
+      # Monitor sends last_message as nested map, we flatten to last_quote/last_bar
+      last_message = Map.get(stats_map, :last_message, %{})
+
+      normalized_stats = %{
+        quotes_per_sec: stats_map.quotes_per_sec,
+        bars_per_min: stats_map.bars_per_min,
+        trades_per_sec: stats_map.trades_per_sec,
+        uptime_seconds: stats_map.uptime_seconds,
+        db_healthy: stats_map.db_healthy,
+        last_quote: Map.get(last_message, :quote),
+        last_bar: Map.get(last_message, :bar)
+      }
+
+      {:noreply, assign(socket, :system_stats, normalized_stats)}
     else
       {:noreply, socket}
     end
@@ -279,21 +340,49 @@ defmodule SignalWeb.MarketLive do
     end
   end
 
-  defp price_change_class(price_change) do
+  defp price_change_class_dark(price_change) do
     case price_change do
-      :up -> "text-green-600"
-      :down -> "text-red-600"
-      :unchanged -> "text-gray-600"
-      :no_data -> "text-gray-400"
+      :up -> "text-green-400"
+      :down -> "text-red-400"
+      :unchanged -> "text-zinc-400"
+      :no_data -> "text-zinc-600"
     end
   end
 
-  defp connection_badge_class(status) do
+  defp connection_badge_class_dark(status) do
     case status do
-      :connected -> "bg-green-100 text-green-800"
-      :disconnected -> "bg-red-100 text-red-800"
-      :reconnecting -> "bg-yellow-100 text-yellow-800"
-      _ -> "bg-gray-100 text-gray-800"
+      :connected -> "bg-green-500/10 text-green-400 border border-green-500/20"
+      :disconnected -> "bg-red-500/10 text-red-400 border border-red-500/20"
+      :reconnecting -> "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+      _ -> "bg-zinc-800/50 text-zinc-400 border border-zinc-700"
+    end
+  end
+
+  defp get_recent_bars_for_chart(symbol) do
+    # Get the most recent 390 bars (full trading day) for initial chart display
+    # Using limit instead of time cutoff ensures data shows even after hours
+    query =
+      from(b in Signal.MarketData.Bar,
+        where: b.symbol == ^symbol,
+        order_by: [desc: b.bar_time],
+        limit: 390
+      )
+
+    try do
+      Signal.Repo.all(query)
+      |> Enum.reverse()
+      |> Enum.map(fn bar ->
+        %{
+          time: DateTime.to_unix(bar.bar_time),
+          open: Decimal.to_string(bar.open),
+          high: Decimal.to_string(bar.high),
+          low: Decimal.to_string(bar.low),
+          close: Decimal.to_string(bar.close),
+          volume: bar.volume
+        }
+      end)
+    rescue
+      _ -> []
     end
   end
 
@@ -310,22 +399,40 @@ defmodule SignalWeb.MarketLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-50">
-      <!-- Header -->
-      <div class="bg-white shadow">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <div class="min-h-screen bg-zinc-950">
+      <!-- Header with gradient -->
+      <div class="bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 border-b border-zinc-800">
+        <div class="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div class="flex items-center justify-between">
-            <h1 class="text-3xl font-bold text-gray-900">Signal Market Data</h1>
+            <div class="flex items-center gap-4">
+              <div class="bg-gradient-to-br from-green-500 to-emerald-600 p-2 rounded-lg shadow-lg shadow-green-500/20">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                  />
+                </svg>
+              </div>
+              <div>
+                <h1 class="text-3xl font-bold text-white tracking-tight">Signal</h1>
+                <p class="text-zinc-400 text-sm">Real-time Market Intelligence</p>
+              </div>
+            </div>
             
     <!-- Connection Status Badge -->
             <div class={[
-              "px-4 py-2 rounded-full text-sm font-medium",
-              connection_badge_class(@connection_status)
+              "px-5 py-2.5 rounded-xl text-sm font-semibold backdrop-blur-sm transition-all duration-300 shadow-lg",
+              connection_badge_class_dark(@connection_status)
             ]}>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2.5">
                 <div class={[
-                  "w-2 h-2 rounded-full",
-                  if(@connection_status == :connected, do: "bg-green-600", else: "bg-red-600")
+                  "w-2.5 h-2.5 rounded-full animate-pulse",
+                  if(@connection_status == :connected,
+                    do: "bg-green-400 shadow-lg shadow-green-400/50",
+                    else: "bg-red-400 shadow-lg shadow-red-400/50"
+                  )
                 ]} />
                 {connection_status_text(@connection_status, @connection_details)}
               </div>
@@ -335,9 +442,9 @@ defmodule SignalWeb.MarketLive do
       </div>
       
     <!-- Main Content -->
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <!-- System Stats Component -->
-        <div class="mb-8">
+        <div class="mb-8 animate-fade-in">
           <SystemStats.system_stats
             connection_status={@connection_status}
             connection_details={@connection_details}
@@ -345,85 +452,158 @@ defmodule SignalWeb.MarketLive do
           />
         </div>
         
-    <!-- Symbol Table -->
-        <div class="bg-white shadow rounded-lg overflow-hidden">
+    <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <%= for symbol <- Enum.take(@symbols, 4) do %>
+            <% data = Map.get(@symbol_data, symbol, initial_symbol_data(symbol)) %>
+            <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden shadow-2xl hover:shadow-green-500/10 transition-all duration-300 hover:border-zinc-700">
+              <!-- Chart Header -->
+              <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <h3 class="text-2xl font-bold text-white">{symbol}</h3>
+                    <div class={[
+                      "text-3xl font-bold font-mono transition-colors duration-300",
+                      price_change_class_dark(data.price_change)
+                    ]}>
+                      ${format_price(data.current_price)}
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-xs text-zinc-500 mb-1">BID • ASK</div>
+                    <div class="text-sm font-mono text-zinc-400">
+                      ${format_price(data.bid)} • ${format_price(data.ask)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+    <!-- Chart Container -->
+              <div
+                id={"chart-#{symbol}"}
+                phx-hook="TradingChart"
+                phx-update="ignore"
+                data-symbol={symbol}
+                data-initial-bars={Jason.encode!(Map.get(@chart_data, symbol, []))}
+                class="w-full min-h-[500px]"
+              >
+              </div>
+              
+    <!-- Chart Footer with Stats -->
+              <div class="px-6 py-4 bg-zinc-900/80 border-t border-zinc-800">
+                <div class="grid grid-cols-4 gap-4 text-center">
+                  <div>
+                    <div class="text-xs text-zinc-500 mb-1">OPEN</div>
+                    <div class="text-sm font-mono font-semibold text-zinc-300">
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.open)}", else: "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-zinc-500 mb-1">HIGH</div>
+                    <div class="text-sm font-mono font-semibold text-green-400">
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.high)}", else: "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-zinc-500 mb-1">LOW</div>
+                    <div class="text-sm font-mono font-semibold text-red-400">
+                      {if data.last_bar, do: "$#{format_price(data.last_bar.low)}", else: "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-zinc-500 mb-1">VOLUME</div>
+                    <div class="text-sm font-mono font-semibold text-zinc-300">
+                      {if data.last_bar, do: format_volume(data.last_bar.volume), else: "-"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          <% end %>
+        </div>
+        
+    <!-- Full Symbol Table -->
+        <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden shadow-2xl">
+          <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
+            <h2 class="text-xl font-bold text-white">All Symbols</h2>
+          </div>
           <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-              <thead class="bg-gray-50 sticky top-0">
+            <table class="min-w-full divide-y divide-zinc-800">
+              <thead class="bg-zinc-900/50 sticky top-0">
                 <tr>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Symbol
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Price
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Bid
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Ask
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Spread
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Open
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     High
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Low
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Close
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Volume
                   </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th class="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
                     Updated
                   </th>
                 </tr>
               </thead>
-              <tbody class="bg-white divide-y divide-gray-200">
+              <tbody class="bg-zinc-900/30 divide-y divide-zinc-800">
                 <%= for symbol <- @symbols do %>
                   <% data = Map.get(@symbol_data, symbol, initial_symbol_data(symbol)) %>
-                  <tr class="hover:bg-gray-50 even:bg-gray-50">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <tr class="hover:bg-zinc-800/50 transition-colors duration-150">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-white">
                       {symbol}
                     </td>
                     <td class={[
-                      "px-6 py-4 whitespace-nowrap text-sm font-mono text-right font-semibold",
-                      price_change_class(data.price_change)
+                      "px-6 py-4 whitespace-nowrap text-sm font-mono text-right font-bold",
+                      price_change_class_dark(data.price_change)
                     ]}>
                       ${format_price(data.current_price)}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-zinc-400">
                       ${format_price(data.bid)}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-zinc-400">
                       ${format_price(data.ask)}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-zinc-400">
                       ${format_price(data.spread)}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-zinc-400">
                       {if data.last_bar, do: "$#{format_price(data.last_bar.open)}", else: "-"}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-green-400">
                       {if data.last_bar, do: "$#{format_price(data.last_bar.high)}", else: "-"}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-red-400">
                       {if data.last_bar, do: "$#{format_price(data.last_bar.low)}", else: "-"}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-zinc-400">
                       {if data.last_bar, do: "$#{format_price(data.last_bar.close)}", else: "-"}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-gray-600">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-right text-zinc-400">
                       {if data.last_bar, do: format_volume(data.last_bar.volume), else: "-"}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-zinc-500">
                       {time_ago(data.last_update)}
                     </td>
                   </tr>

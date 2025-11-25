@@ -152,7 +152,7 @@ defmodule Signal.MarketData.Bar do
   def from_alpaca(symbol, alpaca_bar) do
     %__MODULE__{
       symbol: symbol,
-      bar_time: alpaca_bar.timestamp,
+      bar_time: ensure_usec_precision(alpaca_bar.timestamp),
       open: alpaca_bar.open,
       high: alpaca_bar.high,
       low: alpaca_bar.low,
@@ -161,6 +161,11 @@ defmodule Signal.MarketData.Bar do
       vwap: Map.get(alpaca_bar, :vwap),
       trade_count: Map.get(alpaca_bar, :trade_count)
     }
+  end
+
+  # Ensures DateTime has microsecond precision (required by :utc_datetime_usec)
+  defp ensure_usec_precision(%DateTime{microsecond: {usec, _}} = dt) do
+    %{dt | microsecond: {usec, 6}}
   end
 
   @doc """

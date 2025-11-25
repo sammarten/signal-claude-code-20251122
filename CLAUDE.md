@@ -112,6 +112,7 @@ Signal.Alpaca.StreamHandler (processes messages)
 ### Key Architectural Concepts
 
 **BarCache (ETS Table)**
+
 - In-memory storage for latest quotes and bars
 - O(1) lookups by symbol
 - Managed by GenServer with public ETS table
@@ -119,29 +120,34 @@ Signal.Alpaca.StreamHandler (processes messages)
 - Always query BarCache for current prices, not the database
 
 **PubSub Event Broadcasting**
+
 - All real-time events published to Phoenix.PubSub topics
 - Topic naming: `"bars:{symbol}"`, `"quotes:{symbol}"`, `"levels:{symbol}"`
 - Modules subscribe to topics they need (e.g., strategies subscribe to bar updates)
 - LiveView components auto-update via PubSub subscriptions
 
 **Event Sourcing Pattern**
+
 - `events` table stores all significant system events as JSONB
 - Append-only log with event_type, stream_id, version
 - Used for audit trail and potential event replay
 - Never delete events, only add new ones
 
 **TimescaleDB Hypertables**
+
 - `market_bars` is a hypertable partitioned by time
 - Automatic compression after 7 days (saves ~80% space)
 - Retention policy: 5+ years of minute-bar data
 - Always use UTC for storage, convert to ET for display
 
 **Conditional Supervision Tree**
+
 - BarCache, Monitor, and AlpacaStream can be disabled via config
 - Test environment disables these by default (see `config/test.exs`)
 - Use `start_bar_cache: false` in test config to prevent ETS conflicts
 
 **Mock Stream for Development**
+
 - Set `use_mock_stream: true` in config to simulate market data
 - No Alpaca credentials required when using mock stream
 - Generates realistic fake data for all configured symbols
@@ -152,6 +158,7 @@ Signal.Alpaca.StreamHandler (processes messages)
 ### Phase 1 Modules (Complete)
 
 **`Signal.Alpaca.*`** - Alpaca Markets integration
+
 - `Client` - REST API calls (account info, historical data)
 - `Stream` - WebSocket client (GenServer)
 - `StreamHandler` - Message processing callbacks
@@ -160,16 +167,19 @@ Signal.Alpaca.StreamHandler (processes messages)
 - `Config` - API credentials and endpoint configuration
 
 **`Signal.MarketData.*`** - Market data domain
+
 - `Bar` - Ecto schema for minute bars (OHLCV)
 - `HistoricalLoader` - Bulk loading of historical data
 - `Verifier` - Data quality checks and gap detection
 
 **`Signal.BarCache`** - ETS-based in-memory cache
+
 - GenServer managing ETS table for latest quotes/bars
 - `get/1`, `update_bar/1`, `update_quote/1` public API
 - `current_price/1` - smart price lookup (quote → bar fallback)
 
 **`Signal.Monitor`** - System health monitoring
+
 - Tracks message rates, connection status, errors
 - Anomaly detection for unusual patterns
 - Reports stats every 60 seconds via PubSub
@@ -177,6 +187,7 @@ Signal.Alpaca.StreamHandler (processes messages)
 ### Phase 2 Modules (In Progress)
 
 **`Signal.Technicals.*`** - Technical analysis
+
 - `Levels` - Key level calculation (PDH/PDL, PMH/PML, opening ranges)
 - `Swings` - Swing high/low detection (configurable lookback)
 - `StructureDetector` - BOS (Break of Structure) and ChoCh detection
@@ -186,22 +197,26 @@ Signal.Alpaca.StreamHandler (processes messages)
 ### Database Schemas
 
 **`market_bars`** (TimescaleDB hypertable)
+
 - Primary key: `(symbol, bar_time)`
 - Columns: symbol, bar_time, open, high, low, close, volume, vwap
 - Partitioned by bar_time, compressed after 7 days
 - Use date range queries for efficient scans
 
 **`events`** (Event sourcing log)
+
 - Unique constraint: `(stream_id, version)`
 - Columns: event_type, stream_id, version, data (JSONB), inserted_at
 - Append-only, never update or delete
 
 **`key_levels`** (Phase 2)
+
 - Primary key: `(symbol, date)`
 - Stores daily reference levels for trading strategies
 - Updated incrementally (PDH/PDL at 4am, opening ranges at 9:35/9:45)
 
 **`market_structure`** (Phase 2)
+
 - Primary key: `(symbol, timeframe, bar_time)`
 - Stores swing points, BOS, ChoCh detections
 - Used for strategy confluence analysis
@@ -211,6 +226,7 @@ Signal.Alpaca.StreamHandler (processes messages)
 ### Test Environment Setup
 
 Tests automatically:
+
 - Create/migrate test database
 - Disable BarCache, Monitor, AlpacaStream supervision
 - Use in-memory data structures where possible
@@ -268,17 +284,20 @@ end
 **Critical Rule**: Store UTC everywhere, display ET only in UI
 
 **Storage (Always UTC)**
+
 - Database timestamps: `TIMESTAMPTZ` (stored as UTC)
 - BarCache: All DateTime values in UTC
 - Events: All timestamps in UTC
 - Alpaca API: Returns UTC timestamps
 
 **Display (ET for UI)**
+
 - Dashboard: Convert to `"America/New_York"` before rendering
 - Market hours calculations: Use ET (9:30 AM - 4:00 PM ET)
 - Logs and reports: Show ET for human readability
 
 **Implementation**
+
 ```elixir
 # Store in UTC
 bar_time = ~U[2024-11-15 14:30:00Z]
@@ -342,6 +361,7 @@ Signal.BarCache.update_quote(quote)
 ### Symbol Configuration
 
 Edit `config/dev.exs`:
+
 ```elixir
 config :signal,
   symbols: ["AAPL", "TSLA", "NVDA", "SPY", "QQQ"],
@@ -355,6 +375,7 @@ After changing symbols, restart the server to reconnect WebSocket with new subsc
 ### Environment Variables
 
 Required for production/development with real data:
+
 ```bash
 export ALPACA_API_KEY_ID="your_key_here"
 export ALPACA_API_SECRET_KEY="your_secret_here"
@@ -363,6 +384,7 @@ export ALPACA_WS_URL="wss://stream.data.alpaca.markets/v2/sip"
 ```
 
 For development without credentials:
+
 ```elixir
 # config/dev.exs
 config :signal, use_mock_stream: true
@@ -371,6 +393,7 @@ config :signal, use_mock_stream: true
 ## Project Roadmap
 
 **Phase 1 (Complete)**: Core Infrastructure
+
 - Real-time market data streaming
 - TimescaleDB integration with hypertables
 - LiveView dashboard
@@ -378,18 +401,21 @@ config :signal, use_mock_stream: true
 - System monitoring
 
 **Phase 2 (Current)**: Technical Analysis
+
 - Market structure detection (BOS, ChoCh, swings)
 - Key level tracking (PDH/PDL, opening ranges)
 - PD Arrays (Order Blocks, Fair Value Gaps)
 - Strategy signals with confluence scoring
 
 **Phase 3 (Planned)**: Backtesting & Paper Trading
+
 - Historical signal generation
 - Strategy performance metrics
 - Trade simulation engine
 - Paper trading with Alpaca
 
 **Phase 4 (Future)**: Live Trading
+
 - Order execution
 - Position management
 - Risk management
@@ -425,23 +451,28 @@ config :signal, use_mock_stream: true
 ## Common Pitfalls
 
 **Don't query the database for current prices** - Use BarCache instead
+
 - Database has historical data, BarCache has latest prices
 - Database queries are slower and unnecessary for real-time
 
 **Don't mix time zones** - Always store UTC
+
 - Convert to ET only for display purposes
 - Market hours logic uses ET but store timestamps as UTC
 
 **Don't forget to broadcast events** - Other modules depend on PubSub
+
 - After updating BarCache, broadcast to PubSub
 - After generating signals, broadcast to PubSub
 - LiveView won't update without broadcasts
 
 **Don't use `String.to_atom/1` on user input** - Atoms aren't garbage collected
+
 - Use existing atoms or `String.to_existing_atom/1`
 - Symbol strings stay as strings, only convert to atoms internally
 
 **Test with realistic data** - Edge cases matter in trading
+
 - Test with gaps in data (missing bars)
 - Test with extreme prices (prevent divide by zero)
 - Test timezone boundaries (market open/close)
@@ -450,6 +481,7 @@ config :signal, use_mock_stream: true
 ## Decimal Precision
 
 **Always use `Decimal` for prices, never floats**
+
 ```elixir
 # Good
 price = Decimal.new("175.50")
@@ -461,6 +493,14 @@ result = price + 1.00
 ```
 
 Financial calculations require exact decimal precision. Floats have rounding errors that accumulate.
+
+## MCP Servers
+
+### context7
+
+Always use context7 when I need code generation, setup or configuration steps, or
+library/API documentation. This means you should automatically use the Context7 MCP
+tools to resolve library id and get library docs without me having to explicitly ask.
 
 ## Additional Resources
 

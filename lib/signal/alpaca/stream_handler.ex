@@ -31,6 +31,9 @@ defmodule Signal.Alpaca.StreamHandler do
 
   @behaviour Signal.Alpaca.Stream
 
+  alias Signal.MarketData.Bar
+  alias Signal.Repo
+
   require Logger
 
   @log_interval_seconds 60
@@ -101,6 +104,9 @@ defmodule Signal.Alpaca.StreamHandler do
 
     # Update BarCache
     Signal.BarCache.update_bar(String.to_atom(symbol), bar)
+
+    # Persist to database (upsert to handle duplicates)
+    persist_bar(symbol, bar)
 
     # Broadcast to PubSub
     Phoenix.PubSub.broadcast(Signal.PubSub, "bars:#{symbol}", {:bar, symbol, bar})
@@ -232,5 +238,19 @@ defmodule Signal.Alpaca.StreamHandler do
         "trades=#{counters.trades}, " <>
         "statuses=#{counters.statuses}"
     )
+  end
+
+  # Persist bar to database using upsert (insert or update on conflict)
+  defp persist_bar(symbol, bar_data) do
+    bar = Bar.from_alpaca(symbol, bar_data)
+
+    Repo.insert(bar,
+      on_conflict: {:replace, [:open, :high, :low, :close, :volume, :vwap, :trade_count]},
+      conflict_target: [:symbol, :bar_time]
+    )
+  rescue
+    error ->
+      Logger.error("Failed to persist bar for #{symbol}: #{inspect(error)}")
+      {:error, error}
   end
 end

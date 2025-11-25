@@ -21,6 +21,7 @@ defmodule Signal.Monitor do
 
   use GenServer
   require Logger
+  alias Signal.MarketStatus
 
   @stats_interval :timer.seconds(60)
 
@@ -295,11 +296,11 @@ defmodule Signal.Monitor do
   end
 
   defp check_message_rate_anomalies(rates) do
-    if rates.quotes_per_sec == 0 and market_open?() do
+    if rates.quotes_per_sec == 0 and MarketStatus.open?() do
       Logger.warning("[Monitor] WARNING: Quote rate is 0 during market hours")
     end
 
-    if rates.bars_per_min == 0 and market_open?() do
+    if rates.bars_per_min == 0 and MarketStatus.open?() do
       Logger.warning("[Monitor] WARNING: Bar rate is 0 during market hours")
     end
   end
@@ -324,28 +325,6 @@ defmodule Signal.Monitor do
   defp check_database_anomalies(state) do
     if not state.db_healthy do
       Logger.error("[Monitor] ERROR: Database is unhealthy")
-    end
-  end
-
-  defp market_open? do
-    # Simple market hours check (9:30 AM - 4:00 PM ET, Monday-Friday)
-    # This is a simplified version - production should use tz library
-    with {:ok, now} <- DateTime.now("America/New_York") do
-      time = DateTime.to_time(now)
-      day = Date.day_of_week(DateTime.to_date(now))
-
-      # Monday-Friday (1-5), 9:30 AM - 4:00 PM
-      day >= 1 and day <= 5 and
-        Time.compare(time, ~T[09:30:00]) != :lt and
-        Time.compare(time, ~T[16:00:00]) != :gt
-    else
-      {:error, :time_zone_not_found} ->
-        Logger.debug("[Monitor] America/New_York timezone not available, assuming market open")
-        true
-
-      {:error, reason} ->
-        Logger.warning("[Monitor] Error checking market hours: #{inspect(reason)}")
-        true
     end
   end
 end

@@ -1,6 +1,7 @@
 defmodule SignalWeb.Live.Components.SystemStats do
   use Phoenix.Component
   import SignalWeb.CoreComponents
+  alias Signal.MarketStatus
 
   @moduledoc """
   System statistics component displaying connection status, message rates, and system health.
@@ -31,8 +32,8 @@ defmodule SignalWeb.Live.Components.SystemStats do
     assigns = assign(assigns, :health, calculate_health(assigns.stats, assigns.connection_status))
 
     ~H"""
-    <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-      <div class="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600">
+    <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl shadow-2xl overflow-hidden border border-zinc-800 hover:border-zinc-700 transition-all duration-300">
+      <div class="px-6 py-4 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-pink-500/20 border-b border-zinc-800">
         <h2 class="text-xl font-bold text-white flex items-center gap-2">
           <.icon name="hero-chart-bar" class="size-6" /> System Statistics
         </h2>
@@ -41,79 +42,82 @@ defmodule SignalWeb.Live.Components.SystemStats do
       <div class="p-6">
         <!-- Overall Health Banner -->
         <div class={[
-          "mb-6 p-4 rounded-lg text-center font-semibold",
-          health_banner_class(@health)
+          "mb-6 p-4 rounded-xl text-center font-bold backdrop-blur-sm transition-all duration-300",
+          health_banner_class_dark(@health)
         ]}>
-          <div class="flex items-center justify-center gap-2">
-            <.icon name={health_icon(@health)} class="size-6" />
-            <span>{health_text(@health)}</span>
+          <div class="flex items-center justify-center gap-3">
+            <.icon name={health_icon(@health)} class="size-7" />
+            <span class="text-lg">{health_text(@health)}</span>
           </div>
         </div>
         
     <!-- Stats Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <!-- Connection Status -->
-          <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="bg-zinc-800/50 rounded-xl p-4 hover:bg-zinc-800/70 transition-all duration-300 border border-zinc-700/50 hover:border-zinc-600">
             <div class="flex items-center gap-2 mb-2">
-              <.icon name="hero-wifi" class={"size-5 #{connection_icon_class(@connection_status)}"} />
-              <div class="text-sm font-medium text-gray-500">Connection</div>
+              <.icon
+                name="hero-wifi"
+                class={"size-5 #{connection_icon_class(@connection_status)}"}
+              />
+              <div class="text-sm font-medium text-zinc-400">Connection</div>
             </div>
-            <div class="text-lg font-bold text-gray-900">
+            <div class="text-lg font-bold text-white">
               {connection_status_text(@connection_status, @connection_details)}
             </div>
-            <div class="text-xs text-gray-500 mt-1">
+            <div class="text-xs text-zinc-500 mt-1">
               WebSocket Stream
             </div>
           </div>
           
     <!-- Message Rates -->
-          <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="bg-zinc-800/50 rounded-xl p-4 hover:bg-zinc-800/70 transition-all duration-300 border border-zinc-700/50 hover:border-zinc-600">
             <div class="flex items-center gap-2 mb-2">
-              <.icon name="hero-chat-bubble-left-right" class="size-5 text-blue-500" />
-              <div class="text-sm font-medium text-gray-500">Message Rates</div>
+              <.icon name="hero-chat-bubble-left-right" class="size-5 text-blue-400" />
+              <div class="text-sm font-medium text-zinc-400">Message Rates</div>
             </div>
             <div class="space-y-1">
               <div class="flex justify-between items-center">
-                <span class="text-xs text-gray-600">Quotes:</span>
-                <span class="text-sm font-bold text-gray-900">{@stats.quotes_per_sec}/sec</span>
+                <span class="text-xs text-zinc-500">Quotes:</span>
+                <span class="text-sm font-bold text-white">{@stats.quotes_per_sec}/sec</span>
               </div>
               <div class="flex justify-between items-center">
-                <span class="text-xs text-gray-600">Bars:</span>
-                <span class="text-sm font-bold text-gray-900">{@stats.bars_per_min}/min</span>
+                <span class="text-xs text-zinc-500">Bars:</span>
+                <span class="text-sm font-bold text-white">{@stats.bars_per_min}/min</span>
               </div>
               <%= if @stats[:trades_per_sec] && @stats.trades_per_sec > 0 do %>
                 <div class="flex justify-between items-center">
-                  <span class="text-xs text-gray-600">Trades:</span>
-                  <span class="text-sm font-bold text-gray-900">{@stats.trades_per_sec}/sec</span>
+                  <span class="text-xs text-zinc-500">Trades:</span>
+                  <span class="text-sm font-bold text-white">{@stats.trades_per_sec}/sec</span>
                 </div>
               <% end %>
             </div>
           </div>
           
     <!-- Database Health -->
-          <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="bg-zinc-800/50 rounded-xl p-4 hover:bg-zinc-800/70 transition-all duration-300 border border-zinc-700/50 hover:border-zinc-600">
             <div class="flex items-center gap-2 mb-2">
               <.icon name="hero-circle-stack" class={"size-5 #{db_icon_class(@stats.db_healthy)}"} />
-              <div class="text-sm font-medium text-gray-500">Database</div>
+              <div class="text-sm font-medium text-zinc-400">Database</div>
             </div>
-            <div class={["text-lg font-bold", db_text_class(@stats.db_healthy)]}>
+            <div class={["text-lg font-bold", db_text_class_dark(@stats.db_healthy)]}>
               {if @stats.db_healthy, do: "Healthy", else: "Error"}
             </div>
-            <div class="text-xs text-gray-500 mt-1">
+            <div class="text-xs text-zinc-500 mt-1">
               TimescaleDB
             </div>
           </div>
           
     <!-- System Uptime -->
-          <div class="bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="bg-zinc-800/50 rounded-xl p-4 hover:bg-zinc-800/70 transition-all duration-300 border border-zinc-700/50 hover:border-zinc-600">
             <div class="flex items-center gap-2 mb-2">
-              <.icon name="hero-clock" class="size-5 text-purple-500" />
-              <div class="text-sm font-medium text-gray-500">Uptime</div>
+              <.icon name="hero-clock" class="size-5 text-purple-400" />
+              <div class="text-sm font-medium text-zinc-400">Uptime</div>
             </div>
-            <div class="text-lg font-bold text-gray-900">
+            <div class="text-lg font-bold text-white">
               {format_uptime(@stats.uptime_seconds)}
             </div>
-            <div class="text-xs text-gray-500 mt-1">
+            <div class="text-xs text-zinc-500 mt-1">
               {uptime_status_text(@stats.uptime_seconds)}
             </div>
           </div>
@@ -121,22 +125,22 @@ defmodule SignalWeb.Live.Components.SystemStats do
         
     <!-- Last Message Timestamps -->
         <%= if @stats[:last_quote] || @stats[:last_bar] do %>
-          <div class="mt-6 pt-6 border-t border-gray-200">
+          <div class="mt-6 pt-6 border-t border-zinc-800">
             <div class="flex items-center gap-2 mb-3">
-              <.icon name="hero-arrow-path" class="size-4 text-gray-400" />
-              <h3 class="text-sm font-medium text-gray-500">Last Updates</h3>
+              <.icon name="hero-arrow-path" class="size-4 text-zinc-400" />
+              <h3 class="text-sm font-medium text-zinc-400">Last Updates</h3>
             </div>
             <div class="grid grid-cols-2 gap-4">
               <%= if @stats[:last_quote] do %>
-                <div>
-                  <div class="text-xs text-gray-500">Last Quote</div>
-                  <div class="text-sm font-medium text-gray-900">{time_ago(@stats.last_quote)}</div>
+                <div class="bg-zinc-800/30 rounded-lg p-3">
+                  <div class="text-xs text-zinc-500 mb-1">Last Quote</div>
+                  <div class="text-sm font-medium text-white">{time_ago(@stats.last_quote)}</div>
                 </div>
               <% end %>
               <%= if @stats[:last_bar] do %>
-                <div>
-                  <div class="text-xs text-gray-500">Last Bar</div>
-                  <div class="text-sm font-medium text-gray-900">{time_ago(@stats.last_bar)}</div>
+                <div class="bg-zinc-800/30 rounded-lg p-3">
+                  <div class="text-xs text-zinc-500 mb-1">Last Bar</div>
+                  <div class="text-sm font-medium text-white">{time_ago(@stats.last_bar)}</div>
                 </div>
               <% end %>
             </div>
@@ -144,20 +148,20 @@ defmodule SignalWeb.Live.Components.SystemStats do
         <% end %>
         
     <!-- Market Status Indicator -->
-        <div class="mt-4 pt-4 border-t border-gray-200">
+        <div class="mt-4 pt-4 border-t border-zinc-800">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
               <.icon
                 name="hero-building-office-2"
-                class={"size-4 #{if market_open?(), do: "text-green-500", else: "text-gray-400"}"}
+                class={"size-4 #{MarketStatus.color_class(MarketStatus.current())}"}
               />
-              <span class="text-sm font-medium text-gray-700">Market Status</span>
+              <span class="text-sm font-medium text-zinc-300">Market Status</span>
             </div>
             <span class={[
-              "text-xs font-medium px-2 py-1 rounded-full",
-              if(market_open?(), do: "bg-green-100 text-green-800", else: "bg-gray-100 text-gray-800")
+              "text-xs font-bold px-3 py-1.5 rounded-lg transition-all duration-300",
+              MarketStatus.badge_class(MarketStatus.current())
             ]}>
-              {if market_open?(), do: "Open", else: "Closed"}
+              {MarketStatus.label(MarketStatus.current())}
             </span>
           </div>
         </div>
@@ -175,37 +179,10 @@ defmodule SignalWeb.Live.Components.SystemStats do
       not stats.db_healthy -> :error
       # Degraded: reconnecting or no messages during market hours
       connection_status == :reconnecting -> :degraded
-      stats.quotes_per_sec == 0 and market_open?() -> :degraded
-      stats.bars_per_min == 0 and market_open?() -> :degraded
+      stats.quotes_per_sec == 0 and MarketStatus.open?() -> :degraded
+      stats.bars_per_min == 0 and MarketStatus.open?() -> :degraded
       # Healthy: all systems operational
       true -> :healthy
-    end
-  end
-
-  defp market_open? do
-    market_open_time = Application.get_env(:signal, :market_open, ~T[09:30:00])
-    market_close_time = Application.get_env(:signal, :market_close, ~T[16:00:00])
-    timezone = Application.get_env(:signal, :timezone, "America/New_York")
-
-    try do
-      # Get current time in market timezone
-      now = DateTime.now!(timezone)
-      current_time = DateTime.to_time(now)
-      current_date = DateTime.to_date(now)
-      day_of_week = Date.day_of_week(current_date)
-
-      # Check if weekday (Monday=1 to Friday=5)
-      is_weekday = day_of_week >= 1 and day_of_week <= 5
-
-      # Check if within market hours
-      is_market_hours =
-        Time.compare(current_time, market_open_time) != :lt and
-          Time.compare(current_time, market_close_time) != :gt
-
-      is_weekday and is_market_hours
-    rescue
-      # If timezone calculation fails, default to false
-      _ -> false
     end
   end
 
@@ -250,9 +227,15 @@ defmodule SignalWeb.Live.Components.SystemStats do
 
   # Styling Helpers
 
-  defp health_banner_class(:healthy), do: "bg-green-100 text-green-800"
-  defp health_banner_class(:degraded), do: "bg-yellow-100 text-yellow-800"
-  defp health_banner_class(:error), do: "bg-red-100 text-red-800"
+  defp health_banner_class_dark(:healthy),
+    do: "bg-green-500/20 text-green-400 border border-green-500/30 shadow-lg shadow-green-500/10"
+
+  defp health_banner_class_dark(:degraded),
+    do:
+      "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 shadow-lg shadow-yellow-500/10"
+
+  defp health_banner_class_dark(:error),
+    do: "bg-red-500/20 text-red-400 border border-red-500/30 shadow-lg shadow-red-500/10"
 
   defp health_icon(:healthy), do: "hero-check-circle"
   defp health_icon(:degraded), do: "hero-exclamation-triangle"
@@ -278,6 +261,6 @@ defmodule SignalWeb.Live.Components.SystemStats do
   defp db_icon_class(true), do: "text-green-500"
   defp db_icon_class(false), do: "text-red-500"
 
-  defp db_text_class(true), do: "text-green-600"
-  defp db_text_class(false), do: "text-red-600"
+  defp db_text_class_dark(true), do: "text-green-400"
+  defp db_text_class_dark(false), do: "text-red-400"
 end
