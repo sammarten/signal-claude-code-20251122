@@ -1,4 +1,6 @@
 import { createChart, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
+import { SessionHighlighter } from './session_highlighter';
+import { KeyLevelsManager } from './key_levels';
 
 /**
  * Convert UTC timestamp to browser's local timezone
@@ -10,15 +12,33 @@ function timeToLocal(originalTime) {
 }
 
 /**
+ * Round minutes to nearest 15-minute interval (0, 15, 30, 45)
+ */
+function roundToNearest15(minutes) {
+  return Math.round(minutes / 15) * 15;
+}
+
+/**
  * Format time in 12-hour format for tick marks
+ * Rounds to nearest 15-minute interval for cleaner display
  */
 function formatTime12Hour(time) {
   const date = new Date(time * 1000);
-  const hours = date.getUTCHours();
+  let hours = date.getUTCHours();
   const minutes = date.getUTCMinutes();
+
+  // Round to nearest 15-minute interval
+  let roundedMinutes = roundToNearest15(minutes);
+
+  // Handle rollover (e.g., 8:53 rounds to 9:00)
+  if (roundedMinutes === 60) {
+    roundedMinutes = 0;
+    hours = (hours + 1) % 24;
+  }
+
   const ampm = hours >= 12 ? 'PM' : 'AM';
   const hour12 = hours % 12 || 12;
-  const minuteStr = minutes.toString().padStart(2, '0');
+  const minuteStr = roundedMinutes.toString().padStart(2, '0');
   return `${hour12}:${minuteStr} ${ampm}`;
 }
 
@@ -108,6 +128,20 @@ export const TradingChart = {
       },
     });
 
+    // Create and attach session highlighter for market hours visualization
+    this.sessionHighlighter = new SessionHighlighter();
+    this.candleSeries.attachPrimitive(this.sessionHighlighter);
+
+    // Create key levels manager for price lines
+    this.keyLevelsManager = new KeyLevelsManager(this.candleSeries);
+
+    // Load initial key levels
+    const initialLevels = JSON.parse(this.el.dataset.keyLevels || '{}');
+    if (Object.keys(initialLevels).length > 0) {
+      console.log('Initial key levels:', initialLevels);
+      this.keyLevelsManager.setLevels(initialLevels);
+    }
+
     // Load initial data
     const initialData = JSON.parse(this.el.dataset.initialBars || '[]');
     console.log('Initial data:', initialData.length, 'bars');
@@ -133,9 +167,19 @@ export const TradingChart = {
       console.log('Setting candle data:', candleData.length, 'points');
       this.candleSeries.setData(candleData);
       this.volumeSeries.setData(volumeData);
+
+      // Update session highlighter with both local time (for coordinates) and UTC time (for session detection)
+      const sessionData = initialData.map(bar => ({
+        localTime: timeToLocal(bar.time),
+        utcTime: bar.time,
+      }));
+      this.sessionHighlighter.setData(sessionData);
+      this._sessionData = sessionData;
+
       console.log('Chart data loaded successfully');
     } else {
       console.warn('No initial data available for chart');
+      this._sessionData = [];
     }
 
     // Track current candle for real-time updates
@@ -163,6 +207,12 @@ export const TradingChart = {
       this.updatePrice(data);
     });
 
+    // Listen for key level updates
+    this.handleEvent(`levels-update-${symbol}`, ({ levels }) => {
+      console.log('Key levels updated:', levels);
+      this.keyLevelsManager.setLevels(levels);
+    });
+
     // Handle window resize
     this.resizeObserver = new ResizeObserver(entries => {
       if (entries.length === 0 || !entries[0].target) return;
@@ -174,7 +224,16 @@ export const TradingChart = {
   },
 
   updateBar(bar) {
-    const localTime = timeToLocal(bar.time);
+    // Ensure time is a number (LiveView JSON can sometimes serialize differently)
+    const barTime = typeof bar.time === 'number' ? bar.time : parseInt(bar.time, 10);
+    const localTime = timeToLocal(barTime);
+
+    // Only update if the new bar time is >= the current candle time (prevent stale updates)
+    if (this.currentCandle && localTime < this.currentCandle.time) {
+      console.log('Skipping stale bar update:', localTime, '<', this.currentCandle.time);
+      return;
+    }
+
     const candlePoint = {
       time: localTime,
       open: parseFloat(bar.open),
@@ -186,18 +245,27 @@ export const TradingChart = {
     const volumePoint = {
       time: localTime,
       value: bar.volume,
-      color: bar.close >= bar.open ? '#10b98133' : '#ef444433',
+      color: parseFloat(bar.close) >= parseFloat(bar.open) ? '#10b98133' : '#ef444433',
     };
 
     this.candleSeries.update(candlePoint);
     this.volumeSeries.update(volumePoint);
+
+    // Update session highlighter data for new bar
+    const existingIndex = this._sessionData.findIndex(d => d.localTime === localTime);
+    if (existingIndex === -1) {
+      this._sessionData.push({ localTime, utcTime: barTime });
+      this.sessionHighlighter.setData(this._sessionData);
+    }
 
     // Update current candle tracker
     this.currentCandle = candlePoint;
   },
 
   updatePrice(data) {
-    const localTime = timeToLocal(data.time);
+    // Ensure time is a number
+    const dataTime = typeof data.time === 'number' ? data.time : parseInt(data.time, 10);
+    const localTime = timeToLocal(dataTime);
     const price = parseFloat(data.price);
 
     // Check if this is a new candle (new minute) or update to current
@@ -210,6 +278,13 @@ export const TradingChart = {
         low: price,
         close: price,
       };
+
+      // Update session highlighter for new candle
+      const existingIndex = this._sessionData.findIndex(d => d.localTime === localTime);
+      if (existingIndex === -1) {
+        this._sessionData.push({ localTime, utcTime: dataTime });
+        this.sessionHighlighter.setData(this._sessionData);
+      }
     } else if (localTime === this.currentCandle.time) {
       // Same candle - update close and potentially high/low
       this.currentCandle.close = price;
