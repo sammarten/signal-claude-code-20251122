@@ -2,6 +2,7 @@ defmodule SignalWeb.MarketLive do
   use SignalWeb, :live_view
   import Ecto.Query
   alias SignalWeb.Live.Components.SystemStats
+  alias Signal.Technicals.Levels
 
   @moduledoc """
   Real-time market data dashboard displaying live quotes, bars, and system health.
@@ -20,10 +21,11 @@ defmodule SignalWeb.MarketLive do
 
     # Subscribe to PubSub topics for real-time updates
     if connected?(socket) do
-      # Subscribe to quotes and bars for each symbol
+      # Subscribe to quotes, bars, and levels for each symbol
       Enum.each(symbols, fn symbol ->
         Phoenix.PubSub.subscribe(Signal.PubSub, "quotes:#{symbol}")
         Phoenix.PubSub.subscribe(Signal.PubSub, "bars:#{symbol}")
+        Phoenix.PubSub.subscribe(Signal.PubSub, "levels:#{symbol}")
       end)
 
       # Subscribe to connection and system stats
@@ -50,11 +52,23 @@ defmodule SignalWeb.MarketLive do
         %{}
       end
 
+    # Load key levels for chart symbols
+    key_levels =
+      if connected?(socket) do
+        symbols
+        |> Enum.take(4)
+        |> Enum.map(fn symbol -> {symbol, load_key_levels(symbol)} end)
+        |> Map.new()
+      else
+        %{}
+      end
+
     {:ok,
      assign(socket,
        symbols: symbols,
        symbol_data: symbol_data,
        chart_data: chart_data,
+       key_levels: key_levels,
        connection_status: connection_status,
        connection_details: %{},
        system_stats: %{
@@ -179,6 +193,22 @@ defmodule SignalWeb.MarketLive do
        connection_status: status,
        connection_details: details
      )}
+  end
+
+  @impl true
+  def handle_info({:levels_updated, symbol, levels}, socket) do
+    # Update key levels for this symbol
+    key_levels = Map.put(socket.assigns.key_levels, symbol, format_levels_for_chart(levels))
+
+    # Push level updates to the chart if this symbol is in the first 4
+    socket =
+      if symbol in Enum.take(socket.assigns.symbols, 4) do
+        push_event(socket, "levels-update-#{symbol}", %{levels: format_levels_for_chart(levels)})
+      else
+        socket
+      end
+
+    {:noreply, assign(socket, :key_levels, key_levels)}
   end
 
   @impl true
@@ -386,6 +416,36 @@ defmodule SignalWeb.MarketLive do
     end
   end
 
+  defp load_key_levels(symbol) do
+    case Levels.get_current_levels(String.to_atom(symbol)) do
+      {:ok, levels} -> format_levels_for_chart(levels)
+      {:error, _} -> %{}
+    end
+  end
+
+  defp format_levels_for_chart(nil), do: %{}
+
+  defp format_levels_for_chart(levels) do
+    %{
+      pdh: decimal_to_float(levels.previous_day_high),
+      pdl: decimal_to_float(levels.previous_day_low),
+      pmh: decimal_to_float(levels.premarket_high),
+      pml: decimal_to_float(levels.premarket_low),
+      or5h: decimal_to_float(levels.opening_range_5m_high),
+      or5l: decimal_to_float(levels.opening_range_5m_low),
+      or15h: decimal_to_float(levels.opening_range_15m_high),
+      or15l: decimal_to_float(levels.opening_range_15m_low)
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  defp decimal_to_float(nil), do: nil
+
+  defp decimal_to_float(decimal) do
+    Decimal.to_float(decimal)
+  end
+
   defp connection_status_text(status, details) do
     case status do
       :connected -> "Connected"
@@ -485,6 +545,7 @@ defmodule SignalWeb.MarketLive do
                 phx-update="ignore"
                 data-symbol={symbol}
                 data-initial-bars={Jason.encode!(Map.get(@chart_data, symbol, []))}
+                data-key-levels={Jason.encode!(Map.get(@key_levels, symbol, %{}))}
                 class="w-full min-h-[500px]"
               >
               </div>

@@ -23,7 +23,7 @@ defmodule Signal.Monitor do
   require Logger
   alias Signal.MarketStatus
 
-  @stats_interval :timer.seconds(60)
+  @stats_interval :timer.seconds(600)
 
   # Client API
 
