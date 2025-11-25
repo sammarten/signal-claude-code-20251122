@@ -18,6 +18,7 @@ defmodule Signal.Alpaca.StreamSupervisor do
   use Supervisor
   require Logger
   alias Signal.Alpaca.{Config, Stream, StreamHandler, MockStream}
+  alias Signal.MarketData.Backfill
 
   @doc """
   Start the supervisor.
@@ -47,6 +48,8 @@ defmodule Signal.Alpaca.StreamSupervisor do
 
       Config.configured?() ->
         Logger.info("Starting Alpaca stream with configured credentials")
+        # Run backfill asynchronously to fill in any missing bars since last shutdown
+        spawn_backfill()
         children = [build_stream_child_spec(Stream)]
         Supervisor.init(children, strategy: :one_for_one)
 
@@ -83,5 +86,15 @@ defmodule Signal.Alpaca.StreamSupervisor do
 
   defp get_configured_symbols do
     Application.get_env(:signal, :symbols, [])
+  end
+
+  # Spawn async task to backfill missing bars
+  # Runs in background so it doesn't block startup
+  defp spawn_backfill do
+    Task.start(fn ->
+      # Small delay to let Repo fully initialize
+      Process.sleep(1000)
+      Backfill.run()
+    end)
   end
 end

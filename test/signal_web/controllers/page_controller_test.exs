@@ -3,6 +3,6 @@ defmodule SignalWeb.PageControllerTest do
 
   test "GET / redirects to MarketLive", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Signal Market Data"
+    assert html_response(conn, 200) =~ "Real-time Market Intelligence"
   end
 end
