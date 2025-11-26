@@ -93,6 +93,24 @@ mix signal.load_data
 mix signal.load_data --check-only
 ```
 
+### Gap Filling
+
+```bash
+# Check and fill gaps for all configured symbols
+mix signal.fill_gaps
+
+# Check and fill gaps for specific symbols
+mix signal.fill_gaps --symbols AAPL,TSLA,NVDA
+
+# Check for gaps without filling (dry run)
+mix signal.fill_gaps --check-only
+
+# Set maximum gap size to fill (in minutes, default: 1440 = 24 hours)
+mix signal.fill_gaps --max-gap 720
+```
+
+**Automatic Gap Filling**: The system automatically detects and fills data gaps when the WebSocket stream reconnects (e.g., after computer sleep or network interruption). Gaps up to 24 hours are filled automatically. For larger gaps, use the manual commands above or `mix signal.load_data`.
+
 ## Architecture Overview
 
 ### Core Data Flow
@@ -161,7 +179,7 @@ Signal.Alpaca.StreamHandler (processes messages)
 
 - `Client` - REST API calls (account info, historical data)
 - `Stream` - WebSocket client (GenServer)
-- `StreamHandler` - Message processing callbacks
+- `StreamHandler` - Message processing callbacks, triggers automatic gap filling on reconnect
 - `StreamSupervisor` - Supervises Stream with restart strategy
 - `MockStream` - Fake data generator for development
 - `Config` - API credentials and endpoint configuration
@@ -169,7 +187,8 @@ Signal.Alpaca.StreamHandler (processes messages)
 **`Signal.MarketData.*`** - Market data domain
 
 - `Bar` - Ecto schema for minute bars (OHLCV)
-- `HistoricalLoader` - Bulk loading of historical data
+- `HistoricalLoader` - Bulk loading of historical data (years at a time)
+- `GapFiller` - Detects and fills small gaps in real-time data (up to 24 hours)
 - `Verifier` - Data quality checks and gap detection
 
 **`Signal.BarCache`** - ETS-based in-memory cache

@@ -17,6 +17,7 @@ defmodule Signal.Application do
         maybe_start_bar_cache() ++
         maybe_start_monitor() ++
         maybe_start_alpaca_stream() ++
+        maybe_start_opening_range_calculator() ++
         [
           # HTTP client for API requests
           {Finch, name: Signal.Finch},
@@ -52,6 +53,15 @@ defmodule Signal.Application do
   defp maybe_start_alpaca_stream do
     if Application.get_env(:signal, :start_alpaca_stream, true) do
       [Signal.Alpaca.StreamSupervisor]
+    else
+      []
+    end
+  end
+
+  # Conditionally start OpeningRangeCalculator (disabled in tests)
+  defp maybe_start_opening_range_calculator do
+    if Application.get_env(:signal, :start_opening_range_calculator, true) do
+      [Signal.Technicals.OpeningRangeCalculator]
     else
       []
     end

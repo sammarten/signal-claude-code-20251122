@@ -43,6 +43,21 @@ function formatTime12Hour(time) {
 }
 
 /**
+ * Format time in 12-hour format for hover/crosshair
+ * Shows exact timestamp without rounding
+ */
+function formatTimeExact(time) {
+  const date = new Date(time * 1000);
+  const hours = date.getUTCHours();
+  const minutes = date.getUTCMinutes();
+
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  const minuteStr = minutes.toString().padStart(2, '0');
+  return `${hour12}:${minuteStr} ${ampm}`;
+}
+
+/**
  * TradingChart Hook - Lightweight Charts integration for real-time market data
  *
  * This hook creates and manages a candlestick chart with real-time updates.
@@ -97,7 +112,7 @@ export const TradingChart = {
         tickMarkFormatter: (time) => formatTime12Hour(time),
       },
       localization: {
-        timeFormatter: (time) => formatTime12Hour(time),
+        timeFormatter: (time) => formatTimeExact(time),
       },
     });
 
