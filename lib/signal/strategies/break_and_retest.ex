@@ -75,7 +75,9 @@ defmodule Signal.Strategies.BreakAndRetest do
     lookback = Keyword.get(opts, :lookback, 30)
     retest_window = Keyword.get(opts, :retest_window, 15)
 
-    recent_bars = Enum.take(bars, -lookback)
+    # Filter out invalid bars before processing
+    valid_bars = Enum.filter(bars, &valid_bar?/1)
+    recent_bars = Enum.take(valid_bars, -lookback)
 
     if length(recent_bars) < 5 do
       {:ok, []}
@@ -98,6 +100,24 @@ defmodule Signal.Strategies.BreakAndRetest do
       {:ok, setups}
     end
   end
+
+  @doc """
+  Validates that a bar has all required OHLC fields populated.
+
+  ## Parameters
+
+    * `bar` - The bar to validate
+
+  ## Returns
+
+  Boolean indicating if the bar is valid for strategy evaluation.
+  """
+  @spec valid_bar?(Bar.t()) :: boolean()
+  def valid_bar?(%Bar{open: open, high: high, low: low, close: close}) do
+    not is_nil(open) and not is_nil(high) and not is_nil(low) and not is_nil(close)
+  end
+
+  def valid_bar?(_), do: false
 
   @doc """
   Checks if a level was broken in the given bars.
@@ -210,17 +230,22 @@ defmodule Signal.Strategies.BreakAndRetest do
 
     * `retest_bar` - The retest bar
     * `direction` - Trade direction (:long or :short)
-    * `buffer` - Price buffer above/below (default: 0.02)
+    * `buffer_pct` - Buffer as percentage of price (default: 0.0002 = 0.02%)
 
   ## Returns
 
   Entry price as Decimal.
   """
   @spec calculate_entry(Bar.t(), :long | :short, Decimal.t()) :: Decimal.t()
-  def calculate_entry(%Bar{} = retest_bar, direction, buffer \\ Decimal.new("0.02")) do
+  def calculate_entry(%Bar{} = retest_bar, direction, buffer_pct \\ Decimal.new("0.0002")) do
     case direction do
-      :long -> Decimal.add(retest_bar.high, buffer)
-      :short -> Decimal.sub(retest_bar.low, buffer)
+      :long ->
+        buffer = Decimal.mult(retest_bar.high, buffer_pct)
+        Decimal.add(retest_bar.high, buffer)
+
+      :short ->
+        buffer = Decimal.mult(retest_bar.low, buffer_pct)
+        Decimal.sub(retest_bar.low, buffer)
     end
   end
 
@@ -234,17 +259,22 @@ defmodule Signal.Strategies.BreakAndRetest do
 
     * `retest_bar` - The retest bar
     * `direction` - Trade direction (:long or :short)
-    * `buffer` - Price buffer beyond the bar (default: 0.10)
+    * `buffer_pct` - Buffer as percentage of price (default: 0.001 = 0.1%)
 
   ## Returns
 
   Stop loss price as Decimal.
   """
   @spec calculate_stop(Bar.t(), :long | :short, Decimal.t()) :: Decimal.t()
-  def calculate_stop(%Bar{} = retest_bar, direction, buffer \\ Decimal.new("0.10")) do
+  def calculate_stop(%Bar{} = retest_bar, direction, buffer_pct \\ Decimal.new("0.001")) do
     case direction do
-      :long -> Decimal.sub(retest_bar.low, buffer)
-      :short -> Decimal.add(retest_bar.high, buffer)
+      :long ->
+        buffer = Decimal.mult(retest_bar.low, buffer_pct)
+        Decimal.sub(retest_bar.low, buffer)
+
+      :short ->
+        buffer = Decimal.mult(retest_bar.high, buffer_pct)
+        Decimal.add(retest_bar.high, buffer)
     end
   end
 

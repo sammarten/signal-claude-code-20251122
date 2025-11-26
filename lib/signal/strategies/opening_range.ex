@@ -77,12 +77,15 @@ defmodule Signal.Strategies.OpeningRange do
     prefer_range = Keyword.get(opts, :prefer_range, :both)
     retest_window = Keyword.get(opts, :retest_window, 15)
 
+    # Filter out invalid bars before processing
+    valid_bars = Enum.filter(bars, &BreakAndRetest.valid_bar?/1)
+
     case check_ranges_ready(levels, prefer_range) do
       {:ok, :established} ->
         setups =
           get_ranges_to_check(levels, prefer_range)
           |> Enum.flat_map(fn {range_type, high, low} ->
-            find_orb_setups(symbol, bars, range_type, high, low, retest_window, min_rr)
+            find_orb_setups(symbol, valid_bars, range_type, high, low, retest_window, min_rr)
           end)
           |> Enum.filter(&Setup.valid?/1)
 

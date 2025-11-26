@@ -192,10 +192,16 @@ defmodule Signal.Strategies.Setup do
     end_time = Keyword.get(opts, :end_time, ~T[11:00:00])
     timezone = Keyword.get(opts, :timezone, "America/New_York")
 
-    et_time = DateTime.shift_zone!(timestamp, timezone)
-    time = DateTime.to_time(et_time)
+    case DateTime.shift_zone(timestamp, timezone) do
+      {:ok, local_time} ->
+        time = DateTime.to_time(local_time)
+        Time.compare(time, start_time) != :lt and Time.compare(time, end_time) != :gt
 
-    Time.compare(time, start_time) != :lt and Time.compare(time, end_time) != :gt
+      {:error, _reason} ->
+        # If timezone conversion fails, conservatively return false
+        # This can happen if tzdata is not configured
+        false
+    end
   end
 
   @doc """

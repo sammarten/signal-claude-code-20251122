@@ -117,8 +117,9 @@ defmodule Signal.Strategies.BreakAndRetestTest do
 
       entry = BreakAndRetest.calculate_entry(bar, :long)
 
-      # Default buffer is 0.02
-      expected = Decimal.add(Decimal.new("101.5"), Decimal.new("0.02"))
+      # Default buffer is 0.02% of price (101.5 * 0.0002 = 0.0203)
+      buffer = Decimal.mult(Decimal.new("101.5"), Decimal.new("0.0002"))
+      expected = Decimal.add(Decimal.new("101.5"), buffer)
       assert Decimal.equal?(entry, expected)
     end
 
@@ -127,17 +128,20 @@ defmodule Signal.Strategies.BreakAndRetestTest do
 
       entry = BreakAndRetest.calculate_entry(bar, :short)
 
-      # Default buffer is 0.02
-      expected = Decimal.sub(Decimal.new("99.5"), Decimal.new("0.02"))
+      # Default buffer is 0.02% of price (99.5 * 0.0002 = 0.0199)
+      buffer = Decimal.mult(Decimal.new("99.5"), Decimal.new("0.0002"))
+      expected = Decimal.sub(Decimal.new("99.5"), buffer)
       assert Decimal.equal?(entry, expected)
     end
 
-    test "respects custom buffer" do
+    test "respects custom buffer percentage" do
       bar = create_bar(100.0, 101.5, 99.5, 101.0, ~U[2024-01-15 14:35:00Z])
 
-      entry = BreakAndRetest.calculate_entry(bar, :long, Decimal.new("0.10"))
+      # Use 0.1% buffer
+      entry = BreakAndRetest.calculate_entry(bar, :long, Decimal.new("0.001"))
 
-      expected = Decimal.add(Decimal.new("101.5"), Decimal.new("0.10"))
+      buffer = Decimal.mult(Decimal.new("101.5"), Decimal.new("0.001"))
+      expected = Decimal.add(Decimal.new("101.5"), buffer)
       assert Decimal.equal?(entry, expected)
     end
   end
@@ -148,8 +152,9 @@ defmodule Signal.Strategies.BreakAndRetestTest do
 
       stop = BreakAndRetest.calculate_stop(bar, :long)
 
-      # Default buffer is 0.10
-      expected = Decimal.sub(Decimal.new("99.5"), Decimal.new("0.10"))
+      # Default buffer is 0.1% of price (99.5 * 0.001 = 0.0995)
+      buffer = Decimal.mult(Decimal.new("99.5"), Decimal.new("0.001"))
+      expected = Decimal.sub(Decimal.new("99.5"), buffer)
       assert Decimal.equal?(stop, expected)
     end
 
@@ -158,8 +163,9 @@ defmodule Signal.Strategies.BreakAndRetestTest do
 
       stop = BreakAndRetest.calculate_stop(bar, :short)
 
-      # Default buffer is 0.10
-      expected = Decimal.add(Decimal.new("101.5"), Decimal.new("0.10"))
+      # Default buffer is 0.1% of price (101.5 * 0.001 = 0.1015)
+      buffer = Decimal.mult(Decimal.new("101.5"), Decimal.new("0.001"))
+      expected = Decimal.add(Decimal.new("101.5"), buffer)
       assert Decimal.equal?(stop, expected)
     end
   end
@@ -222,6 +228,32 @@ defmodule Signal.Strategies.BreakAndRetestTest do
       bar = create_bar_with_wicks(100.0, 100.0, 100.0, 100.0, ~U[2024-01-15 14:35:00Z])
 
       assert BreakAndRetest.strong_rejection?(bar, :long) == false
+    end
+  end
+
+  describe "valid_bar?/1" do
+    test "returns true for bar with all OHLC fields" do
+      bar = create_bar(100.0, 101.0, 99.0, 100.5, ~U[2024-01-15 14:30:00Z])
+      assert BreakAndRetest.valid_bar?(bar) == true
+    end
+
+    test "returns false for bar with nil high" do
+      bar = %Bar{
+        symbol: "TEST",
+        bar_time: ~U[2024-01-15 14:30:00Z],
+        open: Decimal.new("100.0"),
+        high: nil,
+        low: Decimal.new("99.0"),
+        close: Decimal.new("100.5"),
+        volume: 1000
+      }
+
+      assert BreakAndRetest.valid_bar?(bar) == false
+    end
+
+    test "returns false for non-bar value" do
+      assert BreakAndRetest.valid_bar?(nil) == false
+      assert BreakAndRetest.valid_bar?(%{}) == false
     end
   end
 

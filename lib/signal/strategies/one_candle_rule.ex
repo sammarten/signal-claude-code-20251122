@@ -77,7 +77,9 @@ defmodule Signal.Strategies.OneCandleRule do
     lookback = Keyword.get(opts, :lookback, 50)
     retest_window = Keyword.get(opts, :retest_window, 15)
 
-    recent_bars = Enum.take(bars, -lookback)
+    # Filter out invalid bars before processing
+    valid_bars = Enum.filter(bars, &BreakAndRetest.valid_bar?/1)
+    recent_bars = Enum.take(valid_bars, -lookback)
 
     if length(recent_bars) < 10 do
       {:ok, []}
@@ -359,11 +361,17 @@ defmodule Signal.Strategies.OneCandleRule do
   end
 
   defp calculate_stop_from_one_candle(one_candle, direction) do
-    buffer = Decimal.new("0.10")
+    # Use 0.1% buffer as percentage of price
+    buffer_pct = Decimal.new("0.001")
 
     case direction do
-      :long -> Decimal.sub(one_candle.low, buffer)
-      :short -> Decimal.add(one_candle.high, buffer)
+      :long ->
+        buffer = Decimal.mult(one_candle.low, buffer_pct)
+        Decimal.sub(one_candle.low, buffer)
+
+      :short ->
+        buffer = Decimal.mult(one_candle.high, buffer_pct)
+        Decimal.add(one_candle.high, buffer)
     end
   end
 
