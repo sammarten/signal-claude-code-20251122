@@ -3,6 +3,7 @@ defmodule SignalWeb.MarketLive do
   import Ecto.Query
   alias SignalWeb.Live.Components.SystemStats
   alias Signal.Technicals.Levels
+  alias Signal.Technicals.StructureDetector
 
   @moduledoc """
   Real-time market data dashboard displaying live quotes, bars, and system health.
@@ -63,12 +64,35 @@ defmodule SignalWeb.MarketLive do
         %{}
       end
 
+    # Load market structure for chart symbols (computed from chart_data bars)
+    market_structure =
+      if connected?(socket) do
+        symbols
+        |> Enum.take(4)
+        |> Enum.map(fn symbol ->
+          bars = Map.get(chart_data, symbol, [])
+          structure = compute_structure_for_chart(bars)
+
+          IO.puts(
+            "[MarketLive] Computed structure for #{symbol}: #{length(bars)} bars, " <>
+              "#{length(Map.get(structure, :swing_highs, []))} swing highs, " <>
+              "#{length(Map.get(structure, :swing_lows, []))} swing lows"
+          )
+
+          {symbol, structure}
+        end)
+        |> Map.new()
+      else
+        %{}
+      end
+
     {:ok,
      assign(socket,
        symbols: symbols,
        symbol_data: symbol_data,
        chart_data: chart_data,
        key_levels: key_levels,
+       market_structure: market_structure,
        connection_status: connection_status,
        connection_details: %{},
        stats_expanded: false,
@@ -183,6 +207,36 @@ defmodule SignalWeb.MarketLive do
       socket
       |> assign(:symbol_data, symbol_data)
       |> push_event("bar-update-#{symbol}", %{bar: bar_data})
+
+    # Update chart_data and recompute structure for charted symbols
+    socket =
+      if symbol in Enum.take(socket.assigns.symbols, 4) do
+        # Add new bar to chart_data (keep last 390 bars)
+        current_bars = Map.get(socket.assigns.chart_data, symbol, [])
+
+        updated_bars =
+          (current_bars ++ [bar_data])
+          |> Enum.take(-390)
+
+        chart_data = Map.put(socket.assigns.chart_data, symbol, updated_bars)
+
+        # Recompute structure (only every 5 bars to avoid excessive computation)
+        # We use the bar count modulo to throttle updates
+        socket = assign(socket, :chart_data, chart_data)
+
+        if rem(length(updated_bars), 5) == 0 do
+          new_structure = compute_structure_for_chart(updated_bars)
+          market_structure = Map.put(socket.assigns.market_structure, symbol, new_structure)
+
+          socket
+          |> assign(:market_structure, market_structure)
+          |> push_event("structure-update-#{symbol}", %{structure: new_structure})
+        else
+          socket
+        end
+      else
+        socket
+      end
 
     {:noreply, socket}
   end
@@ -452,6 +506,66 @@ defmodule SignalWeb.MarketLive do
     Decimal.to_float(decimal)
   end
 
+  # Compute market structure from chart bar data for visualization
+  # Takes the JSON-serialized bar format and converts back to Bar structs for analysis
+  defp compute_structure_for_chart([]), do: %{}
+
+  defp compute_structure_for_chart(chart_bars) when length(chart_bars) < 20, do: %{}
+
+  defp compute_structure_for_chart(chart_bars) do
+    # Convert chart bar format back to Bar-like maps for StructureDetector
+    bars =
+      chart_bars
+      |> Enum.map(fn bar ->
+        %Signal.MarketData.Bar{
+          bar_time: DateTime.from_unix!(bar["time"] || bar[:time]),
+          open: Decimal.new(bar["open"] || bar[:open]),
+          high: Decimal.new(bar["high"] || bar[:high]),
+          low: Decimal.new(bar["low"] || bar[:low]),
+          close: Decimal.new(bar["close"] || bar[:close]),
+          volume: bar["volume"] || bar[:volume]
+        }
+      end)
+
+    # Analyze structure
+    structure = StructureDetector.analyze(bars, lookback: 3)
+
+    # Format for JavaScript consumption
+    format_structure_for_chart(structure)
+  end
+
+  defp format_structure_for_chart(structure) do
+    %{
+      swing_highs:
+        structure.swing_highs
+        |> Enum.take(-5)
+        |> Enum.map(fn swing ->
+          %{price: Decimal.to_float(swing.price), time: DateTime.to_unix(swing.bar_time)}
+        end),
+      swing_lows:
+        structure.swing_lows
+        |> Enum.take(-5)
+        |> Enum.map(fn swing ->
+          %{price: Decimal.to_float(swing.price), time: DateTime.to_unix(swing.bar_time)}
+        end),
+      bos: format_structure_event(structure.latest_bos),
+      choch: format_structure_event(structure.latest_choch),
+      trend: structure.trend
+    }
+  end
+
+  defp format_structure_event(nil), do: []
+
+  defp format_structure_event(event) do
+    [
+      %{
+        type: Atom.to_string(event.type),
+        price: Decimal.to_float(event.price),
+        time: DateTime.to_unix(event.bar_time)
+      }
+    ]
+  end
+
   defp connection_status_text(status, details) do
     case status do
       :connected -> "Connected"
@@ -553,6 +667,7 @@ defmodule SignalWeb.MarketLive do
                 data-symbol={symbol}
                 data-initial-bars={Jason.encode!(Map.get(@chart_data, symbol, []))}
                 data-key-levels={Jason.encode!(Map.get(@key_levels, symbol, %{}))}
+                data-market-structure={Jason.encode!(Map.get(@market_structure, symbol, %{}))}
                 class="w-full min-h-[500px]"
               >
               </div>

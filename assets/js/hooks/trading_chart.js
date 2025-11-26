@@ -1,6 +1,7 @@
 import { createChart, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { SessionHighlighter } from './session_highlighter';
 import { KeyLevelsManager } from './key_levels';
+import { MarketStructureManager } from './market_structure';
 
 /**
  * Convert UTC timestamp to browser's local timezone
@@ -157,6 +158,24 @@ export const TradingChart = {
       this.keyLevelsManager.setLevels(initialLevels);
     }
 
+    // Create market structure manager for swing/BOS/ChoCh lines
+    this.marketStructureManager = new MarketStructureManager(this.candleSeries);
+
+    // Load initial market structure
+    const initialStructure = JSON.parse(this.el.dataset.marketStructure || '{}');
+    console.log('Initial market structure for', symbol, ':', initialStructure);
+    console.log('Raw data-market-structure:', this.el.dataset.marketStructure);
+    const hasStructureData = initialStructure.swing_highs?.length > 0 ||
+                              initialStructure.swing_lows?.length > 0 ||
+                              initialStructure.bos?.length > 0 ||
+                              initialStructure.choch?.length > 0;
+    if (hasStructureData) {
+      console.log('Setting initial market structure');
+      this.marketStructureManager.setStructure(initialStructure);
+    } else {
+      console.log('No structure data to display');
+    }
+
     // Load initial data
     const initialData = JSON.parse(this.el.dataset.initialBars || '[]');
     console.log('Initial data:', initialData.length, 'bars');
@@ -226,6 +245,12 @@ export const TradingChart = {
     this.handleEvent(`levels-update-${symbol}`, ({ levels }) => {
       console.log('Key levels updated:', levels);
       this.keyLevelsManager.setLevels(levels);
+    });
+
+    // Listen for market structure updates
+    this.handleEvent(`structure-update-${symbol}`, ({ structure }) => {
+      console.log('Market structure updated:', structure);
+      this.marketStructureManager.setStructure(structure);
     });
 
     // Handle window resize
