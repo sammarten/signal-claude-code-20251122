@@ -32,6 +32,7 @@ defmodule Signal.Alpaca.StreamHandler do
   @behaviour Signal.Alpaca.Stream
 
   alias Signal.MarketData.Bar
+  alias Signal.MarketData.GapFiller
   alias Signal.Repo
 
   require Logger
@@ -177,6 +178,28 @@ defmodule Signal.Alpaca.StreamHandler do
 
     # Log connection status
     Logger.info("AlpacaStream connection status: #{conn_event.status}")
+
+    # On successful connection, check for and fill data gaps
+    # Run this asynchronously to avoid blocking stream processing
+    if conn_event.status == :connected do
+      Task.start(fn ->
+        Logger.info("[StreamHandler] Checking for data gaps after reconnection...")
+
+        {:ok, stats} = GapFiller.check_and_fill_all(lookback_hours: 24, max_gap_minutes: 1440)
+
+        total_filled =
+          stats
+          |> Map.values()
+          |> Enum.filter(&is_integer/1)
+          |> Enum.sum()
+
+        if total_filled > 0 do
+          Logger.info("[StreamHandler] Gap filling complete: #{total_filled} bars filled")
+        else
+          Logger.debug("[StreamHandler] No gaps detected")
+        end
+      end)
+    end
 
     # Reset counters on successful connection
     new_state =

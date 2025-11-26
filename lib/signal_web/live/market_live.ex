@@ -71,6 +71,7 @@ defmodule SignalWeb.MarketLive do
        key_levels: key_levels,
        connection_status: connection_status,
        connection_details: %{},
+       stats_expanded: false,
        system_stats: %{
          quotes_per_sec: 0,
          bars_per_min: 0,
@@ -233,6 +234,11 @@ defmodule SignalWeb.MarketLive do
     else
       {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_event("toggle_stats", _params, socket) do
+    {:noreply, assign(socket, :stats_expanded, !socket.assigns.stats_expanded)}
   end
 
   # Private helper functions
@@ -503,12 +509,13 @@ defmodule SignalWeb.MarketLive do
       
     <!-- Main Content -->
       <div class="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- System Stats Component -->
+        <!-- System Stats Header -->
         <div class="mb-8 animate-fade-in">
-          <SystemStats.system_stats
+          <SystemStats.system_stats_header
             connection_status={@connection_status}
             connection_details={@connection_details}
             stats={@system_stats}
+            expanded={@stats_expanded}
           />
         </div>
         
