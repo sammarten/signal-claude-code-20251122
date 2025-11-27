@@ -105,8 +105,8 @@ defmodule Signal.SchemaTest do
       bar_time = DateTime.truncate(DateTime.utc_now(), :second)
 
       insert_query = """
-      INSERT INTO market_bars (symbol, bar_time, open, high, low, close, volume, vwap, trade_count)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO market_bars (symbol, bar_time, open, high, low, close, volume, vwap, trade_count, session, date)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       """
 
       {:ok, _} =
@@ -119,7 +119,9 @@ defmodule Signal.SchemaTest do
           Decimal.new("100.50"),
           1_000_000,
           Decimal.new("100.25"),
-          500
+          500,
+          "regular",
+          Date.utc_today()
         ])
 
       # Query it back
@@ -147,11 +149,21 @@ defmodule Signal.SchemaTest do
       bar_time = DateTime.truncate(DateTime.utc_now(), :second)
 
       insert_query = """
-      INSERT INTO market_bars (symbol, bar_time, open, high, low, close, volume)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO market_bars (symbol, bar_time, open, high, low, close, volume, session, date)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       """
 
-      params = ["DUPE", bar_time, 100.0, 101.0, 99.0, 100.5, 1_000_000]
+      params = [
+        "DUPE",
+        bar_time,
+        100.0,
+        101.0,
+        99.0,
+        100.5,
+        1_000_000,
+        "regular",
+        Date.utc_today()
+      ]
 
       # First insert should succeed
       {:ok, _} = Ecto.Adapters.SQL.query(Repo, insert_query, params)

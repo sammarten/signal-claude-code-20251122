@@ -18,6 +18,7 @@ defmodule SignalWeb.Router do
     pipe_through :browser
 
     live "/", MarketLive, :index
+    live "/signals", SignalsLive, :index
   end
 
   # Other scopes may use custom stacks.

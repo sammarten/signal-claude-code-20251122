@@ -169,6 +169,63 @@ defmodule Signal.Alpaca.Client do
     end
   end
 
+  # Calendar API
+
+  @doc """
+  Get market calendar for a date range.
+
+  Returns trading days with market open/close times. Non-trading days
+  (weekends, holidays) are not included in the response.
+
+  ## Parameters
+
+    - `opts` - Keyword list with options:
+      - `:start` - Date for start of range (optional)
+      - `:end` - Date for end of range (optional)
+
+  ## Returns
+
+    - `{:ok, [calendar_day]}` - List of trading days
+    - `{:error, reason}` - Error details
+
+  ## Examples
+
+      iex> Signal.Alpaca.Client.get_calendar(start: ~D[2024-01-01], end: ~D[2024-01-31])
+      {:ok, [
+        %{date: ~D[2024-01-02], open: ~T[09:30:00], close: ~T[16:00:00]},
+        %{date: ~D[2024-01-03], open: ~T[09:30:00], close: ~T[16:00:00]},
+        ...
+      ]}
+  """
+  @spec get_calendar(keyword()) :: {:ok, [map()]} | {:error, any()}
+  def get_calendar(opts \\ []) do
+    params =
+      opts
+      |> Keyword.take([:start, :end])
+      |> Enum.map(fn
+        {:start, %Date{} = date} -> {:start, Date.to_iso8601(date)}
+        {:end, %Date{} = date} -> {:end, Date.to_iso8601(date)}
+        other -> other
+      end)
+      |> Map.new()
+
+    case get("/v2/calendar", params) do
+      {:ok, calendar_data} when is_list(calendar_data) ->
+        {:ok, Enum.map(calendar_data, &parse_calendar_day/1)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp parse_calendar_day(day_data) do
+    %{
+      date: Date.from_iso8601!(day_data["date"]),
+      open: Time.from_iso8601!(day_data["open"] <> ":00"),
+      close: Time.from_iso8601!(day_data["close"] <> ":00")
+    }
+  end
+
   # Account API
 
   @doc """
