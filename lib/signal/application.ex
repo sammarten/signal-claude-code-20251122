@@ -12,7 +12,11 @@ defmodule Signal.Application do
         SignalWeb.Telemetry,
         Signal.Repo,
         {DNSCluster, query: Application.get_env(:signal, :dns_cluster_query) || :ignore},
-        {Phoenix.PubSub, name: Signal.PubSub}
+        {Phoenix.PubSub, name: Signal.PubSub},
+        # Registry for backtest processes (VirtualClock, BarReplayer, etc.)
+        {Registry, keys: :unique, name: Signal.Backtest.Registry},
+        # StateManager for backtest state isolation
+        Signal.Backtest.StateManager
       ] ++
         maybe_start_bar_cache() ++
         maybe_start_monitor() ++
