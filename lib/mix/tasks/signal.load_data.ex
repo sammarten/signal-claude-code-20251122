@@ -25,6 +25,9 @@ defmodule Mix.Tasks.Signal.LoadData do
       # Check coverage for specific symbols
       mix signal.load_data --symbols AAPL,TSLA --check-only
 
+      # Resume incomplete jobs
+      mix signal.load_data --resume
+
   ## Options
 
       --symbols AAPL,TSLA    Comma-separated list of symbols (default: all configured)
@@ -32,6 +35,7 @@ defmodule Mix.Tasks.Signal.LoadData do
       --end-date DATE        End date in YYYY-MM-DD format (default: today)
       --year YYYY            Load specific year only (overrides start/end dates)
       --check-only           Check coverage without downloading data
+      --resume               Resume incomplete jobs from the last saved position
   """
 
   use Mix.Task
@@ -56,36 +60,96 @@ defmodule Mix.Tasks.Signal.LoadData do
           start_date: :string,
           end_date: :string,
           year: :integer,
-          check_only: :boolean
+          check_only: :boolean,
+          resume: :boolean
         ]
       )
 
-    # Get symbol list
-    symbols = get_symbols(opts[:symbols])
-
-    if Enum.empty?(symbols) do
-      Mix.shell().error(
-        "No symbols configured or provided. Set symbols in config or use --symbols flag."
-      )
-
-      exit(:normal)
-    end
-
-    # Get date range
-    {start_date, end_date} = get_date_range(opts)
-
-    # Print header
-    print_header(symbols, start_date, end_date)
-
-    # Execute task
-    if opts[:check_only] do
-      check_coverage(symbols, start_date, end_date)
+    # Handle resume mode first (doesn't need symbols or date range)
+    if opts[:resume] do
+      resume_incomplete_jobs()
     else
-      load_data(symbols, start_date, end_date)
+      # Get symbol list
+      symbols = get_symbols(opts[:symbols])
+
+      if Enum.empty?(symbols) do
+        Mix.shell().error(
+          "No symbols configured or provided. Set symbols in config or use --symbols flag."
+        )
+
+        exit(:normal)
+      end
+
+      # Get date range
+      {start_date, end_date} = get_date_range(opts)
+
+      # Print header
+      print_header(symbols, start_date, end_date)
+
+      # Execute task
+      if opts[:check_only] do
+        check_coverage(symbols, start_date, end_date)
+      else
+        load_data(symbols, start_date, end_date)
+      end
     end
   end
 
   # Private Functions
+
+  defp resume_incomplete_jobs do
+    Mix.shell().info([
+      :bright,
+      "\nResuming incomplete historical data jobs...",
+      :normal,
+      "\n"
+    ])
+
+    # First show what jobs are pending
+    {:ok, jobs} = HistoricalLoader.get_incomplete_jobs()
+
+    if Enum.empty?(jobs) do
+      Mix.shell().info("No incomplete jobs found.\n")
+    else
+      Mix.shell().info("Found #{length(jobs)} incomplete job(s):\n")
+
+      Enum.each(jobs, fn job ->
+        status_str =
+          case job.status do
+            "pending" -> "pending"
+            "running" -> "interrupted"
+            "failed" -> "failed"
+            _ -> job.status
+          end
+
+        progress =
+          if job.last_bar_time do
+            "last progress: #{DateTime.to_date(job.last_bar_time)}, #{job.bars_loaded} bars"
+          else
+            "not started"
+          end
+
+        Mix.shell().info("  • #{job.symbol}: #{job.start_date} → #{job.end_date}")
+        Mix.shell().info("    Status: #{status_str}, #{progress}")
+      end)
+
+      Mix.shell().info("\nStarting resume...\n")
+      start_time = System.monotonic_time(:second)
+
+      {:ok, results} = HistoricalLoader.resume_incomplete()
+      elapsed = System.monotonic_time(:second) - start_time
+      total_bars = results |> Map.values() |> Enum.sum()
+
+      Mix.shell().info([
+        :green,
+        "\n✓ Resume complete",
+        :normal
+      ])
+
+      Mix.shell().info("  Total bars loaded: #{format_number(total_bars)}")
+      Mix.shell().info("  Time elapsed: #{format_duration(elapsed)}\n")
+    end
+  end
 
   defp get_symbols(nil) do
     Application.get_env(:signal, :symbols, [])

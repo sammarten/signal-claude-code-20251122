@@ -487,6 +487,35 @@ defmodule SignalWeb.MarketLive do
               </div>
             </div>
             
+    <!-- Navigation -->
+            <div class="flex items-center gap-4">
+              <span class="px-4 py-2 text-sm font-medium text-white bg-zinc-800 rounded-lg">
+                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                  />
+                </svg>
+                Market
+              </span>
+              <.link
+                navigate={~p"/signals"}
+                class="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              >
+                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+                Signals
+              </.link>
+            </div>
+            
     <!-- Connection Status Badge -->
             <div class={[
               "px-5 py-2.5 rounded-xl text-sm font-semibold backdrop-blur-sm transition-all duration-300 shadow-lg",
