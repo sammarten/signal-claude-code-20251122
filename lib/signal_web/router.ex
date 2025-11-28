@@ -19,6 +19,9 @@ defmodule SignalWeb.Router do
 
     live "/", MarketLive, :index
     live "/signals", SignalsLive, :index
+    live "/backtest", BacktestLive, :index
+    live "/optimization", OptimizationLive, :index
+    live "/reports", ReportsLive, :index
   end
 
   # Other scopes may use custom stacks.
