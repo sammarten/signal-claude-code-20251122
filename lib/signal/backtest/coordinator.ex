@@ -45,6 +45,7 @@ defmodule Signal.Backtest.Coordinator do
 
   require Logger
 
+  alias Signal.Analytics
   alias Signal.Backtest.BacktestRun
   alias Signal.Backtest.StateManager
   alias Signal.Backtest.BarReplayer
@@ -324,6 +325,32 @@ defmodule Signal.Backtest.Coordinator do
           Decimal.add(acc, t.pnl || Decimal.new(0))
         end)
 
+      # Calculate comprehensive analytics
+      backtest_data = %{
+        closed_trades: final_account.closed_trades,
+        equity_curve: final_account.equity_curve,
+        initial_capital: config.initial_capital
+      }
+
+      analytics =
+        case Analytics.analyze_backtest(backtest_data) do
+          {:ok, analytics} ->
+            # Persist analytics results
+            case Analytics.persist_results(run_id, analytics) do
+              {:ok, _result} ->
+                Logger.debug("[Coordinator] Analytics persisted for run #{run_id}")
+
+              {:error, reason} ->
+                Logger.warning("[Coordinator] Failed to persist analytics: #{inspect(reason)}")
+            end
+
+            analytics
+
+          {:error, reason} ->
+            Logger.warning("[Coordinator] Failed to calculate analytics: #{inspect(reason)}")
+            nil
+        end
+
       # Mark as completed
       run = Repo.get!(BacktestRun, run_id)
 
@@ -355,6 +382,8 @@ defmodule Signal.Backtest.Coordinator do
          win_rate: if(total_trades > 0, do: winning_trades / total_trades * 100, else: 0.0),
          total_pnl: total_pnl,
          final_equity: final_account.current_equity,
+         # Analytics
+         analytics: analytics,
          # Detailed data
          closed_trades: final_account.closed_trades,
          equity_curve: final_account.equity_curve
