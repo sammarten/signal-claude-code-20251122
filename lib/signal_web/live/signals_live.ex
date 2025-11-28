@@ -1,6 +1,7 @@
 defmodule SignalWeb.SignalsLive do
   use SignalWeb, :live_view
 
+  alias SignalWeb.Live.Components.Navigation
   alias Signal.Signals.TradeSignal
   alias Signal.MarketData.Bar
 
@@ -284,35 +285,12 @@ defmodule SignalWeb.SignalsLive do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-zinc-950">
-      <!-- Header -->
-      <div class="bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 border-b border-zinc-800">
-        <div class="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-4">
-              <div class="bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-lg shadow-lg shadow-amber-500/20">
-                <.icon name="hero-bolt" class="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h1 class="text-3xl font-bold text-white tracking-tight">Trade Signals</h1>
-                <p class="text-zinc-400 text-sm">Real-time signal detection and analysis</p>
-              </div>
-            </div>
-            
-    <!-- Navigation -->
-            <div class="flex items-center gap-4">
-              <.link
-                navigate={~p"/"}
-                class="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors"
-              >
-                <.icon name="hero-chart-bar" class="w-4 h-4 inline mr-1" /> Market
-              </.link>
-              <span class="px-4 py-2 text-sm font-medium text-white bg-zinc-800 rounded-lg">
-                <.icon name="hero-bolt" class="w-4 h-4 inline mr-1" /> Signals
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Navigation.header
+        current_path="/signals"
+        page_title="Trade Signals"
+        page_subtitle="Real-time signal detection and analysis"
+        page_icon_color="from-amber-500 to-orange-600"
+      />
       
     <!-- Main Content -->
       <div class="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
