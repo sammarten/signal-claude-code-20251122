@@ -16,7 +16,8 @@ defmodule SignalWeb.Live.Components.Navigation do
     %{path: "/signals", label: "Signals", icon: "hero-bolt"},
     %{path: "/backtest", label: "Backtest", icon: "hero-play"},
     %{path: "/optimization", label: "Optimize", icon: "hero-adjustments-horizontal"},
-    %{path: "/reports", label: "Reports", icon: "hero-document-chart-bar"}
+    %{path: "/reports", label: "Reports", icon: "hero-document-chart-bar"},
+    %{path: "/data/coverage", label: "Data", icon: "hero-server-stack"}
   ]
 
   attr :current_path, :string, required: true
@@ -141,6 +142,12 @@ defmodule SignalWeb.Live.Components.Navigation do
   defp page_icon(%{current_path: "/reports"} = assigns) do
     ~H"""
     <.icon name="hero-document-chart-bar" class="w-8 h-8 text-white" />
+    """
+  end
+
+  defp page_icon(%{current_path: "/data/coverage"} = assigns) do
+    ~H"""
+    <.icon name="hero-server-stack" class="w-8 h-8 text-white" />
     """
   end
 

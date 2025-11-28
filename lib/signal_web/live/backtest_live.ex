@@ -49,7 +49,7 @@ defmodule SignalWeb.BacktestLive do
        # Run state
        current_run_id: nil,
        run_status: :idle,
-       progress: %{pct: 0, current_date: nil, bars_processed: 0, signals_generated: 0},
+       progress: %{pct_complete: 0.0, current_date: nil, bars_processed: 0, signals_generated: 0},
 
        # Results
        result: nil,
@@ -270,7 +270,7 @@ defmodule SignalWeb.BacktestLive do
     {:noreply,
      assign(socket,
        run_status: :running,
-       progress: %{pct: 0, current_date: nil, bars_processed: 0, signals_generated: 0},
+       progress: %{pct_complete: 0.0, current_date: nil, bars_processed: 0, signals_generated: 0},
        result: nil,
        trades: []
      )}
@@ -465,7 +465,7 @@ defmodule SignalWeb.BacktestLive do
             <div class="flex justify-between text-xs text-zinc-500">
               <span>Bars: {@progress.bars_processed || 0}</span>
               <span>Signals: {@progress.signals_generated || 0}</span>
-              <span>{Float.round(@progress.pct_complete || 0.0, 1)}%</span>
+              <span>{Float.round((@progress.pct_complete || 0) / 1, 1)}%</span>
             </div>
           </div>
         </div>

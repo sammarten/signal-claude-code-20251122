@@ -33,6 +33,7 @@ defmodule Signal.MarketData.GapFiller do
   @batch_size 1000
   @max_retries 3
   @retry_delay 5000
+  @max_days_per_request 30
 
   @doc """
   Checks for and fills data gaps for a single symbol.
@@ -155,7 +156,205 @@ defmodule Signal.MarketData.GapFiller do
     end
   end
 
+  @doc """
+  Fills missing days for a symbol efficiently by batching contiguous date ranges.
+
+  Takes a list of dates that are missing data and groups them into contiguous
+  ranges, making one API call per range instead of per-day or per-gap.
+
+  ## Parameters
+
+    * `symbol` - Symbol string (e.g., "AAPL")
+    * `missing_dates` - List of Date structs for days missing data
+    * `opts` - Options keyword list:
+      - `:progress_callback` - Optional function called with progress updates
+
+  ## Returns
+
+    * `{:ok, count}` - Number of bars filled
+    * `{:error, reason}` - If filling fails
+
+  ## Examples
+
+      # Fill specific missing dates
+      {:ok, count} = GapFiller.fill_missing_days("AAPL", [~D[2024-01-15], ~D[2024-01-16], ~D[2024-01-17]])
+
+      # With progress callback
+      {:ok, count} = GapFiller.fill_missing_days("AAPL", dates, progress_callback: fn p -> IO.inspect(p) end)
+  """
+  @spec fill_missing_days(String.t(), [Date.t()], keyword()) ::
+          {:ok, integer()} | {:error, term()}
+  def fill_missing_days(symbol, missing_dates, opts \\ []) do
+    progress_callback = Keyword.get(opts, :progress_callback)
+
+    if Enum.empty?(missing_dates) do
+      {:ok, 0}
+    else
+      # Sort and group into contiguous ranges
+      ranges = group_contiguous_dates(Enum.sort(missing_dates, Date))
+
+      Logger.info(
+        "[GapFiller] #{symbol}: Filling #{length(missing_dates)} missing days in #{length(ranges)} range(s)"
+      )
+
+      # Fill each range
+      total_ranges = length(ranges)
+
+      {total_filled, _} =
+        ranges
+        |> Enum.with_index(1)
+        |> Enum.reduce({0, 0}, fn {{start_date, end_date}, range_idx}, {filled_acc, _} ->
+          days_in_range = Date.diff(end_date, start_date) + 1
+
+          Logger.info(
+            "[GapFiller] #{symbol}: Range #{range_idx}/#{total_ranges}: #{start_date} to #{end_date} (#{days_in_range} days)"
+          )
+
+          # Split large ranges into chunks to respect API limits
+          range_filled = fill_date_range(symbol, start_date, end_date)
+
+          if progress_callback do
+            progress_callback.(%{
+              symbol: symbol,
+              range: range_idx,
+              total_ranges: total_ranges,
+              bars_filled: filled_acc + range_filled
+            })
+          end
+
+          {filled_acc + range_filled, range_idx}
+        end)
+
+      Logger.info(
+        "[GapFiller] #{symbol}: Filled #{total_filled} bars across #{length(ranges)} range(s)"
+      )
+
+      {:ok, total_filled}
+    end
+  end
+
+  @doc """
+  Analyzes coverage data and fills all missing/partial days for a symbol.
+
+  Takes coverage data (as returned by DataCoverageLive) and fills days
+  that have less than the threshold percentage of data.
+
+  ## Parameters
+
+    * `symbol` - Symbol string
+    * `coverage_data` - Map of date => %{coverage_pct: float, ...}
+    * `opts` - Options:
+      - `:threshold` - Fill days below this coverage % (default: 50)
+      - `:progress_callback` - Optional progress function
+
+  ## Returns
+
+    * `{:ok, count}` - Number of bars filled
+  """
+  @spec fill_from_coverage(String.t(), map(), keyword()) :: {:ok, integer()} | {:error, term()}
+  def fill_from_coverage(symbol, coverage_data, opts \\ []) do
+    threshold = Keyword.get(opts, :threshold, 50)
+
+    missing_dates =
+      coverage_data
+      |> Enum.filter(fn {_date, data} -> data.coverage_pct < threshold end)
+      |> Enum.map(fn {date, _data} -> date end)
+
+    fill_missing_days(symbol, missing_dates, opts)
+  end
+
   # Private Functions
+
+  defp group_contiguous_dates([]), do: []
+
+  defp group_contiguous_dates([first | rest]) do
+    {ranges, current_start, current_end} =
+      Enum.reduce(rest, {[], first, first}, fn date, {ranges, start, prev_end} ->
+        if Date.diff(date, prev_end) == 1 do
+          # Contiguous - extend current range
+          {ranges, start, date}
+        else
+          # Gap - close current range and start new one
+          {[{start, prev_end} | ranges], date, date}
+        end
+      end)
+
+    # Don't forget the last range
+    [{current_start, current_end} | ranges]
+    |> Enum.reverse()
+  end
+
+  defp fill_date_range(symbol, start_date, end_date) do
+    # Split into chunks of @max_days_per_request to avoid API timeouts
+    chunks = chunk_date_range(start_date, end_date, @max_days_per_request)
+
+    chunks
+    |> Enum.map(fn {chunk_start, chunk_end} ->
+      fill_date_chunk(symbol, chunk_start, chunk_end)
+    end)
+    |> Enum.sum()
+  end
+
+  defp chunk_date_range(start_date, end_date, max_days) do
+    total_days = Date.diff(end_date, start_date) + 1
+
+    if total_days <= max_days do
+      [{start_date, end_date}]
+    else
+      chunk_end = Date.add(start_date, max_days - 1)
+      [{start_date, chunk_end} | chunk_date_range(Date.add(chunk_end, 1), end_date, max_days)]
+    end
+  end
+
+  defp fill_date_chunk(symbol, start_date, end_date, attempt \\ 1) do
+    # Convert dates to DateTimes for API call (market hours: 9:30 AM - 4:00 PM ET)
+    start_dt = date_to_market_open(start_date)
+    end_dt = date_to_market_close(end_date)
+
+    case Client.get_bars(symbol, start: start_dt, end: end_dt, timeframe: "1Min") do
+      {:ok, bars_by_symbol} ->
+        bars = Map.get(bars_by_symbol, symbol, [])
+
+        if Enum.empty?(bars) do
+          Logger.debug("[GapFiller] #{symbol}: No bars returned for #{start_date} to #{end_date}")
+          0
+        else
+          case store_bars(symbol, bars) do
+            {:ok, count} -> count
+            {:error, _} -> 0
+          end
+        end
+
+      {:error, reason} when attempt < @max_retries ->
+        Logger.warning(
+          "[GapFiller] #{symbol}: Fetch failed for #{start_date}-#{end_date} (attempt #{attempt}/#{@max_retries}): #{inspect(reason)}"
+        )
+
+        Process.sleep(@retry_delay)
+        fill_date_chunk(symbol, start_date, end_date, attempt + 1)
+
+      {:error, reason} ->
+        Logger.error(
+          "[GapFiller] #{symbol}: Failed to fetch #{start_date}-#{end_date} after #{@max_retries} attempts: #{inspect(reason)}"
+        )
+
+        0
+    end
+  end
+
+  defp date_to_market_open(date) do
+    # 9:30 AM ET = 14:30 UTC (during EST) or 13:30 UTC (during EDT)
+    # Use 4:00 AM ET to be safe and catch pre-market if needed
+    DateTime.new!(date, ~T[04:00:00], "America/New_York")
+    |> DateTime.shift_zone!("Etc/UTC")
+  end
+
+  defp date_to_market_close(date) do
+    # 4:00 PM ET = 21:00 UTC (during EST) or 20:00 UTC (during EDT)
+    # Use 8:00 PM ET to be safe and catch after-hours if needed
+    DateTime.new!(date, ~T[20:00:00], "America/New_York")
+    |> DateTime.shift_zone!("Etc/UTC")
+  end
 
   @doc false
   def detect_gaps(symbol, lookback_hours) do
