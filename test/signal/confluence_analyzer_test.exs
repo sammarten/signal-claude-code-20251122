@@ -196,6 +196,7 @@ defmodule Signal.ConfluenceAnalyzerTest do
   # Helper Functions
 
   defp create_setup(direction) do
+    # Use 3:00 PM ET (20:00 UTC) - outside first 30 min window, no timing bonus
     %Setup{
       symbol: "AAPL",
       strategy: :break_and_retest,
@@ -206,7 +207,7 @@ defmodule Signal.ConfluenceAnalyzerTest do
       stop_loss: Decimal.new("174.50"),
       take_profit: Decimal.new("177.50"),
       risk_reward: Decimal.new("2.0"),
-      timestamp: DateTime.utc_now(),
+      timestamp: ~U[2024-01-15 20:00:00Z],
       status: :pending,
       confluence: %{}
     }
