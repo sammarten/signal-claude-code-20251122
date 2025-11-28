@@ -48,6 +48,10 @@ defmodule Signal.Backtest.Coordinator do
   alias Signal.Backtest.BacktestRun
   alias Signal.Backtest.StateManager
   alias Signal.Backtest.BarReplayer
+  alias Signal.Backtest.VirtualAccount
+  alias Signal.Backtest.TradeSimulator
+  alias Signal.Backtest.SignalCollector
+  alias Signal.Backtest.FillSimulator
   alias Signal.Repo
 
   @doc """
@@ -225,7 +229,44 @@ defmodule Signal.Backtest.Coordinator do
       # Get the clock
       clock = StateManager.get_clock(run_id)
 
-      # Start the bar replayer
+      # Create virtual account for trade simulation
+      account = VirtualAccount.new(config.initial_capital, config.risk_per_trade)
+
+      # Create fill simulator config
+      fill_config = FillSimulator.new(:signal_price)
+
+      # Start trade simulator
+      trade_simulator_opts = [
+        run_id: run_id,
+        backtest_run_id: run_id,
+        account: account,
+        fill_config: fill_config,
+        clock: clock,
+        symbols: config.symbols,
+        persist_trades: true
+      ]
+
+      {:ok, trade_simulator} = TradeSimulator.start_link(trade_simulator_opts)
+
+      # Start signal collector
+      signal_collector_opts = [
+        run_id: run_id,
+        symbols: config.symbols,
+        strategies: config.strategies,
+        trade_simulator: trade_simulator,
+        clock: clock,
+        min_rr: Map.get(config, :parameters, %{}) |> Map.get(:min_rr, Decimal.new("2.0"))
+      ]
+
+      {:ok, signal_collector} = SignalCollector.start_link(signal_collector_opts)
+
+      # Create bar callback that forwards bars to signal collector and trade simulator
+      bar_callback = fn bar ->
+        SignalCollector.process_bar(signal_collector, bar)
+        TradeSimulator.process_bar(trade_simulator, bar)
+      end
+
+      # Start the bar replayer with bar callback
       replayer_opts = [
         run_id: run_id,
         symbols: config.symbols,
@@ -233,7 +274,8 @@ defmodule Signal.Backtest.Coordinator do
         end_date: config.end_date,
         clock: clock,
         speed: Map.get(config, :speed, :instant),
-        session_filter: Map.get(config, :session_filter, :regular)
+        session_filter: Map.get(config, :session_filter, :regular),
+        bar_callback: bar_callback
       ]
 
       {:ok, replayer} = BarReplayer.start_link(replayer_opts)
@@ -253,26 +295,50 @@ defmodule Signal.Backtest.Coordinator do
       # Wait for replay to complete
       wait_for_completion(replayer)
 
-      # Get final status
+      # Get final status from all components
       final_status = BarReplayer.status(replayer)
+      signals_count = SignalCollector.signals_count(signal_collector)
+      final_account = TradeSimulator.get_account(trade_simulator)
 
-      # Cleanup
+      # Stop the trade simulator and signal collector
+      TradeSimulator.stop(trade_simulator)
+      SignalCollector.stop(signal_collector)
+
+      # Cleanup state
       StateManager.cleanup(run_id)
 
       # Calculate duration
       duration = System.monotonic_time(:second) - start_time
+
+      # Calculate trade stats
+      total_trades = final_account.trade_count
+
+      winning_trades =
+        Enum.count(final_account.closed_trades, fn t -> Decimal.positive?(t.pnl) end)
+
+      losing_trades =
+        Enum.count(final_account.closed_trades, fn t -> Decimal.negative?(t.pnl) end)
+
+      total_pnl =
+        Enum.reduce(final_account.closed_trades, Decimal.new(0), fn t, acc ->
+          Decimal.add(acc, t.pnl || Decimal.new(0))
+        end)
 
       # Mark as completed
       run = Repo.get!(BacktestRun, run_id)
 
       run
       |> BacktestRun.complete_changeset()
-      |> BacktestRun.changeset(%{bars_processed: final_status.bars_processed})
+      |> BacktestRun.changeset(%{
+        bars_processed: final_status.bars_processed,
+        signals_generated: signals_count
+      })
       |> Repo.update!()
 
       Logger.info(
         "[Coordinator] Backtest #{run_id} completed in #{duration}s, " <>
-          "processed #{final_status.bars_processed} bars"
+          "processed #{final_status.bars_processed} bars, " <>
+          "generated #{signals_count} signals, executed #{total_trades} trades"
       )
 
       {:ok,
@@ -280,8 +346,18 @@ defmodule Signal.Backtest.Coordinator do
          run_id: run_id,
          status: :completed,
          bars_processed: final_status.bars_processed,
-         signals_generated: run.signals_generated,
-         duration_seconds: duration
+         signals_generated: signals_count,
+         duration_seconds: duration,
+         # Trade stats
+         total_trades: total_trades,
+         winning_trades: winning_trades,
+         losing_trades: losing_trades,
+         win_rate: if(total_trades > 0, do: winning_trades / total_trades * 100, else: 0.0),
+         total_pnl: total_pnl,
+         final_equity: final_account.current_equity,
+         # Detailed data
+         closed_trades: final_account.closed_trades,
+         equity_curve: final_account.equity_curve
        }}
     rescue
       error ->

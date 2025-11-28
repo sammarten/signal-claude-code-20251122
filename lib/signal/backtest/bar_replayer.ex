@@ -132,6 +132,8 @@ defmodule Signal.Backtest.BarReplayer do
     speed = Keyword.get(opts, :speed, :instant)
     session_filter = Keyword.get(opts, :session_filter, :regular)
 
+    bar_callback = Keyword.get(opts, :bar_callback)
+
     state = %{
       run_id: run_id,
       symbols: symbols,
@@ -144,6 +146,7 @@ defmodule Signal.Backtest.BarReplayer do
       bars_processed: 0,
       total_bars: nil,
       progress_callback: nil,
+      bar_callback: bar_callback,
       current_time: nil
     }
 
@@ -296,9 +299,13 @@ defmodule Signal.Backtest.BarReplayer do
       # Advance the virtual clock
       VirtualClock.advance(state.clock, timestamp)
 
-      # Broadcast each bar to PubSub
+      # Broadcast each bar to PubSub and call bar callback
       Enum.each(bars_at_time, fn bar ->
         broadcast_bar(bar)
+
+        if state.bar_callback do
+          state.bar_callback.(bar)
+        end
       end)
 
       # Update processed count

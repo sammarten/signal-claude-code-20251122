@@ -1,0 +1,196 @@
+defmodule Signal.Backtest.SimulatedTrade do
+  @moduledoc """
+  Schema for simulated trades during backtests.
+
+  A SimulatedTrade represents a complete trade lifecycle from entry to exit,
+  including position sizing, stop loss, take profit, and P&L calculations.
+
+  ## Trade Lifecycle
+
+  1. Signal is generated → Trade opened with status `:open`
+  2. Price hits stop loss → Trade closed with status `:stopped_out`
+  3. Price hits take profit → Trade closed with status `:target_hit`
+  4. Time limit reached → Trade closed with status `:time_exit`
+  5. Manual intervention → Trade closed with status `:manual_exit`
+
+  ## P&L Calculation
+
+  - `pnl` - Absolute profit/loss in dollars
+  - `pnl_pct` - Percentage return on position
+  - `r_multiple` - Return as multiple of risk (e.g., 2R = 2x risk amount profit)
+  """
+
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "simulated_trades" do
+    belongs_to :backtest_run, Signal.Backtest.BacktestRun
+
+    field :signal_id, :binary_id
+
+    # Trade identification
+    field :symbol, :string
+    field :direction, Ecto.Enum, values: [:long, :short]
+
+    # Entry details
+    field :entry_price, :decimal
+    field :entry_time, :utc_datetime_usec
+    field :position_size, :integer
+    field :risk_amount, :decimal
+
+    # Stop/target levels
+    field :stop_loss, :decimal
+    field :take_profit, :decimal
+
+    # Exit details
+    field :status, Ecto.Enum,
+      values: [:open, :stopped_out, :target_hit, :time_exit, :manual_exit],
+      default: :open
+
+    field :exit_price, :decimal
+    field :exit_time, :utc_datetime_usec
+
+    # P&L
+    field :pnl, :decimal
+    field :pnl_pct, :decimal
+    field :r_multiple, :decimal
+
+    # Metadata
+    field :fill_type, :string, default: "signal_price"
+    field :slippage, :decimal, default: Decimal.new(0)
+    field :notes, :string
+
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  @required_fields [
+    :backtest_run_id,
+    :symbol,
+    :direction,
+    :entry_price,
+    :entry_time,
+    :position_size,
+    :risk_amount,
+    :stop_loss
+  ]
+
+  @optional_fields [
+    :signal_id,
+    :take_profit,
+    :status,
+    :exit_price,
+    :exit_time,
+    :pnl,
+    :pnl_pct,
+    :r_multiple,
+    :fill_type,
+    :slippage,
+    :notes
+  ]
+
+  @doc """
+  Creates a changeset for a new trade.
+  """
+  def changeset(trade, attrs) do
+    trade
+    |> cast(attrs, @required_fields ++ @optional_fields)
+    |> validate_required(@required_fields)
+    |> validate_number(:entry_price, greater_than: 0)
+    |> validate_number(:stop_loss, greater_than: 0)
+    |> validate_number(:position_size, greater_than: 0)
+    |> validate_number(:risk_amount, greater_than: 0)
+    |> foreign_key_constraint(:backtest_run_id)
+  end
+
+  @doc """
+  Creates a changeset for closing a trade.
+  """
+  def close_changeset(trade, attrs) do
+    trade
+    |> cast(attrs, [:status, :exit_price, :exit_time, :pnl, :pnl_pct, :r_multiple, :notes])
+    |> validate_required([:status, :exit_price, :exit_time])
+    |> validate_inclusion(:status, [:stopped_out, :target_hit, :time_exit, :manual_exit])
+  end
+
+  @doc """
+  Calculates P&L for a trade given an exit price.
+
+  Returns a map with :pnl, :pnl_pct, and :r_multiple.
+  """
+  def calculate_pnl(trade, exit_price) do
+    entry = trade.entry_price
+    size = trade.position_size
+    risk = trade.risk_amount
+
+    # Calculate raw P&L based on direction
+    pnl =
+      case trade.direction do
+        :long ->
+          Decimal.mult(Decimal.sub(exit_price, entry), Decimal.new(size))
+
+        :short ->
+          Decimal.mult(Decimal.sub(entry, exit_price), Decimal.new(size))
+      end
+
+    # Calculate percentage return
+    position_value = Decimal.mult(entry, Decimal.new(size))
+
+    pnl_pct =
+      if Decimal.compare(position_value, Decimal.new(0)) == :gt do
+        Decimal.div(pnl, position_value)
+        |> Decimal.mult(Decimal.new(100))
+        |> Decimal.round(2)
+      else
+        Decimal.new(0)
+      end
+
+    # Calculate R-multiple
+    r_multiple =
+      if Decimal.compare(risk, Decimal.new(0)) == :gt do
+        Decimal.div(pnl, risk) |> Decimal.round(2)
+      else
+        Decimal.new(0)
+      end
+
+    %{
+      pnl: Decimal.round(pnl, 2),
+      pnl_pct: pnl_pct,
+      r_multiple: r_multiple
+    }
+  end
+
+  @doc """
+  Checks if the current price has hit the stop loss.
+  """
+  def stop_hit?(trade, current_price) do
+    case trade.direction do
+      :long ->
+        Decimal.compare(current_price, trade.stop_loss) in [:lt, :eq]
+
+      :short ->
+        Decimal.compare(current_price, trade.stop_loss) in [:gt, :eq]
+    end
+  end
+
+  @doc """
+  Checks if the current price has hit the take profit target.
+  """
+  def target_hit?(trade, current_price) do
+    case trade.take_profit do
+      nil ->
+        false
+
+      target ->
+        case trade.direction do
+          :long ->
+            Decimal.compare(current_price, target) in [:gt, :eq]
+
+          :short ->
+            Decimal.compare(current_price, target) in [:lt, :eq]
+        end
+    end
+  end
+end
