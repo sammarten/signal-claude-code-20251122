@@ -185,6 +185,259 @@ defmodule Signal.Backtest.VirtualAccountTest do
     end
   end
 
+  describe "partial_close/3" do
+    setup do
+      account = VirtualAccount.new(Decimal.new("100000"), Decimal.new("0.01"))
+
+      params = %{
+        symbol: "AAPL",
+        direction: :long,
+        entry_price: Decimal.new("100.00"),
+        stop_loss: Decimal.new("99.00"),
+        take_profit: Decimal.new("104.00"),
+        entry_time: ~U[2024-01-15 14:30:00Z]
+      }
+
+      {:ok, account_with_position, trade} = VirtualAccount.open_position(account, params)
+      %{account: account_with_position, trade: trade}
+    end
+
+    test "partially closes position with profit", %{account: account, trade: trade} do
+      # Trade has 1000 shares, exit 500 at a profit
+      close_params = %{
+        exit_price: Decimal.new("102.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 500,
+        reason: "target_1",
+        target_index: 0
+      }
+
+      {:ok, updated_account, partial_exit} =
+        VirtualAccount.partial_close(account, trade.id, close_params)
+
+      # Profit = (102 - 100) * 500 = 1000
+      assert Decimal.compare(partial_exit.pnl, Decimal.new("1000.00")) == :eq
+      assert partial_exit.shares_exited == 500
+      assert partial_exit.remaining_shares == 500
+      assert partial_exit.exit_reason == "target_1"
+      assert partial_exit.target_index == 0
+
+      # R-multiple = 1000 / (1 * 500) = 2
+      assert Decimal.compare(partial_exit.r_multiple, Decimal.new("2.00")) == :eq
+
+      # Position should still be open with reduced size
+      remaining_trade = Map.get(updated_account.open_positions, trade.id)
+      assert remaining_trade != nil
+      assert remaining_trade.position_size == 500
+
+      # Cash increased by exit value (500 * 102)
+      expected_cash = Decimal.new("51000.00")
+      assert Decimal.compare(updated_account.cash, expected_cash) == :eq
+
+      # Equity increased by partial profit
+      assert Decimal.compare(updated_account.current_equity, Decimal.new("101000.00")) == :eq
+    end
+
+    test "partially closes short position with profit", %{account: _account} do
+      account = VirtualAccount.new(Decimal.new("100000"), Decimal.new("0.01"))
+
+      params = %{
+        symbol: "AAPL",
+        direction: :short,
+        entry_price: Decimal.new("100.00"),
+        stop_loss: Decimal.new("101.00"),
+        entry_time: ~U[2024-01-15 14:30:00Z]
+      }
+
+      {:ok, account_with_position, trade} = VirtualAccount.open_position(account, params)
+
+      # Exit 500 shares at 98 (profit for short)
+      close_params = %{
+        exit_price: Decimal.new("98.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 500,
+        reason: "target_1"
+      }
+
+      {:ok, _updated_account, partial_exit} =
+        VirtualAccount.partial_close(account_with_position, trade.id, close_params)
+
+      # Profit = (100 - 98) * 500 = 1000
+      assert Decimal.compare(partial_exit.pnl, Decimal.new("1000.00")) == :eq
+
+      # R-multiple = 1000 / (1 * 500) = 2
+      assert Decimal.compare(partial_exit.r_multiple, Decimal.new("2.00")) == :eq
+    end
+
+    test "fully closes position when exiting all shares", %{account: account, trade: trade} do
+      close_params = %{
+        exit_price: Decimal.new("102.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 1000,
+        reason: "target_1",
+        target_index: 0
+      }
+
+      {:ok, updated_account, partial_exit} =
+        VirtualAccount.partial_close(account, trade.id, close_params)
+
+      # Position should be moved to closed trades
+      assert Map.get(updated_account.open_positions, trade.id) == nil
+      assert length(updated_account.closed_trades) == 1
+
+      # Partial exit record should show 0 remaining
+      assert partial_exit.remaining_shares == 0
+
+      # Closed trade should have proper status
+      [closed_trade] = updated_account.closed_trades
+      assert closed_trade.status == :target_hit
+    end
+
+    test "handles multiple partial exits", %{account: account, trade: trade} do
+      # First partial: exit 300 shares at 101
+      first_params = %{
+        exit_price: Decimal.new("101.00"),
+        exit_time: ~U[2024-01-15 14:45:00Z],
+        shares_to_exit: 300,
+        reason: "target_1",
+        target_index: 0
+      }
+
+      {:ok, account, first_exit} = VirtualAccount.partial_close(account, trade.id, first_params)
+
+      assert first_exit.remaining_shares == 700
+      assert Decimal.compare(first_exit.pnl, Decimal.new("300.00")) == :eq
+
+      # Second partial: exit 300 shares at 102
+      second_params = %{
+        exit_price: Decimal.new("102.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 300,
+        reason: "target_2",
+        target_index: 1
+      }
+
+      {:ok, account, second_exit} = VirtualAccount.partial_close(account, trade.id, second_params)
+
+      assert second_exit.remaining_shares == 400
+      assert Decimal.compare(second_exit.pnl, Decimal.new("600.00")) == :eq
+
+      # Remaining position should have 400 shares
+      remaining_trade = Map.get(account.open_positions, trade.id)
+      assert remaining_trade.position_size == 400
+
+      # Total equity should reflect both partial profits (300 + 600 = 900)
+      assert Decimal.compare(account.current_equity, Decimal.new("100900.00")) == :eq
+    end
+
+    test "returns error for non-existent trade", %{account: account} do
+      close_params = %{
+        exit_price: Decimal.new("102.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 500,
+        reason: "target_1"
+      }
+
+      assert {:error, :not_found} =
+               VirtualAccount.partial_close(account, "non-existent-id", close_params)
+    end
+
+    test "returns error for insufficient shares", %{account: account, trade: trade} do
+      close_params = %{
+        exit_price: Decimal.new("102.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 2000,
+        reason: "target_1"
+      }
+
+      assert {:error, :insufficient_shares} =
+               VirtualAccount.partial_close(account, trade.id, close_params)
+    end
+
+    test "returns error for invalid shares count", %{account: account, trade: trade} do
+      close_params = %{
+        exit_price: Decimal.new("102.00"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 0,
+        reason: "target_1"
+      }
+
+      assert {:error, :invalid_shares} =
+               VirtualAccount.partial_close(account, trade.id, close_params)
+
+      # Also test negative shares
+      close_params_negative = %{close_params | shares_to_exit: -100}
+
+      assert {:error, :invalid_shares} =
+               VirtualAccount.partial_close(account, trade.id, close_params_negative)
+    end
+
+    test "returns error for missing params", %{account: account, trade: trade} do
+      close_params = %{
+        exit_price: Decimal.new("102.00")
+        # missing exit_time, shares_to_exit, reason
+      }
+
+      assert {:error, {:missing_params, missing}} =
+               VirtualAccount.partial_close(account, trade.id, close_params)
+
+      assert :exit_time in missing
+      assert :shares_to_exit in missing
+      assert :reason in missing
+    end
+
+    test "calculates correct R-multiple for partial with loss", %{account: account, trade: trade} do
+      close_params = %{
+        exit_price: Decimal.new("99.50"),
+        exit_time: ~U[2024-01-15 15:00:00Z],
+        shares_to_exit: 500,
+        reason: "trailing_stop"
+      }
+
+      {:ok, _updated_account, partial_exit} =
+        VirtualAccount.partial_close(account, trade.id, close_params)
+
+      # Loss = (99.50 - 100) * 500 = -250
+      assert Decimal.compare(partial_exit.pnl, Decimal.new("-250.00")) == :eq
+
+      # R-multiple = -250 / (1 * 500) = -0.5
+      assert Decimal.compare(partial_exit.r_multiple, Decimal.new("-0.50")) == :eq
+    end
+  end
+
+  describe "update_stop/3" do
+    setup do
+      account = VirtualAccount.new(Decimal.new("100000"), Decimal.new("0.01"))
+
+      params = %{
+        symbol: "AAPL",
+        direction: :long,
+        entry_price: Decimal.new("100.00"),
+        stop_loss: Decimal.new("99.00"),
+        entry_time: ~U[2024-01-15 14:30:00Z]
+      }
+
+      {:ok, account_with_position, trade} = VirtualAccount.open_position(account, params)
+      %{account: account_with_position, trade: trade}
+    end
+
+    test "updates stop loss on open position", %{account: account, trade: trade} do
+      new_stop = Decimal.new("100.50")
+
+      {:ok, updated_account} = VirtualAccount.update_stop(account, trade.id, new_stop)
+
+      updated_trade = Map.get(updated_account.open_positions, trade.id)
+      assert Decimal.compare(updated_trade.stop_loss, new_stop) == :eq
+    end
+
+    test "returns error for non-existent trade", %{account: account} do
+      new_stop = Decimal.new("100.50")
+
+      assert {:error, :not_found} =
+               VirtualAccount.update_stop(account, "non-existent-id", new_stop)
+    end
+  end
+
   describe "summary/1" do
     test "returns correct statistics after trades" do
       account = VirtualAccount.new(Decimal.new("100000"), Decimal.new("0.01"))
