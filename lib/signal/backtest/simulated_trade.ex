@@ -18,6 +18,15 @@ defmodule Signal.Backtest.SimulatedTrade do
   - `pnl` - Absolute profit/loss in dollars
   - `pnl_pct` - Percentage return on position
   - `r_multiple` - Return as multiple of risk (e.g., 2R = 2x risk amount profit)
+
+  ## Exit Strategy Tracking
+
+  - `exit_strategy_type` - Type of exit strategy used ("fixed", "trailing", "scaled", etc.)
+  - `stop_moved_to_breakeven` - Whether stop was moved to breakeven during trade
+  - `final_stop` - The final stop price at exit (may differ from initial stop_loss)
+  - `max_favorable_r` - Maximum favorable excursion in R multiples (best potential profit)
+  - `max_adverse_r` - Maximum adverse excursion in R multiples (worst drawdown)
+  - `partial_exit_count` - Number of partial exits (for scaled strategies)
   """
 
   use Ecto.Schema
@@ -58,6 +67,17 @@ defmodule Signal.Backtest.SimulatedTrade do
     field :pnl_pct, :decimal
     field :r_multiple, :decimal
 
+    # Exit strategy tracking
+    field :exit_strategy_type, :string, default: "fixed"
+    field :stop_moved_to_breakeven, :boolean, default: false
+    field :final_stop, :decimal
+    field :max_favorable_r, :decimal
+    field :max_adverse_r, :decimal
+    field :partial_exit_count, :integer, default: 0
+
+    # Partial exits for scaled strategies
+    has_many :partial_exits, Signal.Backtest.PartialExit, foreign_key: :trade_id
+
     # Metadata
     field :fill_type, :string, default: "signal_price"
     field :slippage, :decimal, default: Decimal.new(0)
@@ -86,6 +106,12 @@ defmodule Signal.Backtest.SimulatedTrade do
     :pnl,
     :pnl_pct,
     :r_multiple,
+    :exit_strategy_type,
+    :stop_moved_to_breakeven,
+    :final_stop,
+    :max_favorable_r,
+    :max_adverse_r,
+    :partial_exit_count,
     :fill_type,
     :slippage,
     :notes
@@ -109,8 +135,23 @@ defmodule Signal.Backtest.SimulatedTrade do
   Creates a changeset for closing a trade.
   """
   def close_changeset(trade, attrs) do
+    close_fields = [
+      :status,
+      :exit_price,
+      :exit_time,
+      :pnl,
+      :pnl_pct,
+      :r_multiple,
+      :final_stop,
+      :stop_moved_to_breakeven,
+      :max_favorable_r,
+      :max_adverse_r,
+      :partial_exit_count,
+      :notes
+    ]
+
     trade
-    |> cast(attrs, [:status, :exit_price, :exit_time, :pnl, :pnl_pct, :r_multiple, :notes])
+    |> cast(attrs, close_fields)
     |> validate_required([:status, :exit_price, :exit_time])
     |> validate_inclusion(:status, [:stopped_out, :target_hit, :time_exit, :manual_exit])
   end

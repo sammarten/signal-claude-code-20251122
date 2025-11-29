@@ -209,6 +209,63 @@ defmodule Signal.Analytics.TradeMetrics do
     end
   end
 
+  @doc """
+  Calculates exit strategy effectiveness metrics.
+
+  Analyzes trades by exit type, trailing stop effectiveness, scaled exit performance,
+  breakeven impact, and Maximum Favorable/Adverse Excursion (MFE/MAE).
+
+  ## Parameters
+
+    * `trades` - List of trade maps with exit strategy fields:
+      * `:exit_strategy_type` - "fixed", "trailing", "scaled", or "combined"
+      * `:stop_moved_to_breakeven` - Boolean
+      * `:partial_exit_count` - Number of partial exits
+      * `:max_favorable_r` - Maximum R reached during trade
+      * `:max_adverse_r` - Maximum adverse R reached during trade
+      * `:r_multiple` - Final R-multiple
+
+  ## Returns
+
+  A map containing:
+    * `:by_exit_type` - Breakdown by exit strategy type
+    * `:trailing_stop_effectiveness` - Trailing stop analysis (or nil)
+    * `:scale_out_analysis` - Scaled exit analysis (or nil)
+    * `:breakeven_impact` - Comparison of BE vs non-BE trades
+    * `:max_favorable_excursion` - MFE analysis
+    * `:max_adverse_excursion` - MAE analysis
+  """
+  @spec exit_strategy_analysis(list(map())) :: map()
+  def exit_strategy_analysis(trades) when is_list(trades) do
+    %{
+      by_exit_type: group_by_exit_type(trades),
+      trailing_stop_effectiveness: trailing_effectiveness(trades),
+      scale_out_analysis: scale_out_analysis(trades),
+      breakeven_impact: breakeven_impact(trades),
+      max_favorable_excursion: mfe_analysis(trades),
+      max_adverse_excursion: mae_analysis(trades)
+    }
+  end
+
+  @doc """
+  Groups trades by exit strategy type and calculates metrics for each group.
+  """
+  @spec group_by_exit_type(list(map())) :: map()
+  def group_by_exit_type(trades) when is_list(trades) do
+    trades
+    |> Enum.group_by(&get_exit_strategy_type/1)
+    |> Enum.map(fn {type, group_trades} ->
+      {type,
+       %{
+         count: length(group_trades),
+         win_rate: calculate_win_rate(group_trades),
+         avg_r: calculate_average_r(group_trades),
+         total_pnl: sum_pnl(group_trades)
+       }}
+    end)
+    |> Enum.into(%{})
+  end
+
   # Private Functions
 
   defp do_calculate(trades) do
@@ -446,5 +503,252 @@ defmodule Signal.Analytics.TradeMetrics do
       |> :math.sqrt()
       |> Decimal.from_float()
     end
+  end
+
+  # Exit strategy analysis helpers
+
+  defp get_exit_strategy_type(trade) do
+    Map.get(trade, :exit_strategy_type) || "fixed"
+  end
+
+  defp calculate_win_rate([]), do: @zero
+
+  defp calculate_win_rate(trades) do
+    winners =
+      Enum.count(trades, fn trade ->
+        pnl = Map.get(trade, :pnl, @zero) || @zero
+        Decimal.compare(pnl, @zero) == :gt
+      end)
+
+    percentage(winners, length(trades))
+  end
+
+  defp calculate_average_r([]), do: nil
+
+  defp calculate_average_r(trades) do
+    r_values =
+      trades
+      |> Enum.map(&Map.get(&1, :r_multiple))
+      |> Enum.reject(&is_nil/1)
+
+    if Enum.empty?(r_values) do
+      nil
+    else
+      sum = Enum.reduce(r_values, @zero, &Decimal.add/2)
+      Decimal.div(sum, Decimal.new(length(r_values))) |> Decimal.round(2)
+    end
+  end
+
+  defp trailing_effectiveness(trades) do
+    trailing_trades =
+      Enum.filter(trades, fn trade ->
+        get_exit_strategy_type(trade) == "trailing"
+      end)
+
+    if Enum.empty?(trailing_trades) do
+      nil
+    else
+      %{
+        count: length(trailing_trades),
+        avg_captured_r: calculate_average_r(trailing_trades),
+        avg_mfe_captured_pct: calculate_mfe_capture_percentage(trailing_trades)
+      }
+    end
+  end
+
+  defp scale_out_analysis(trades) do
+    scaled_trades =
+      Enum.filter(trades, fn trade ->
+        (Map.get(trade, :partial_exit_count) || 0) > 0
+      end)
+
+    if Enum.empty?(scaled_trades) do
+      nil
+    else
+      %{
+        count: length(scaled_trades),
+        avg_partial_exits: calculate_avg_partial_exits(scaled_trades),
+        avg_total_r: calculate_average_r(scaled_trades),
+        vs_fixed_comparison: compare_scaled_to_fixed(trades)
+      }
+    end
+  end
+
+  defp breakeven_impact(trades) do
+    be_trades = Enum.filter(trades, &(Map.get(&1, :stop_moved_to_breakeven) == true))
+    non_be_trades = Enum.reject(trades, &(Map.get(&1, :stop_moved_to_breakeven) == true))
+
+    %{
+      trades_moved_to_be: length(be_trades),
+      be_win_rate: calculate_win_rate(be_trades),
+      non_be_win_rate: calculate_win_rate(non_be_trades),
+      be_avg_r: calculate_average_r(be_trades),
+      non_be_avg_r: calculate_average_r(non_be_trades)
+    }
+  end
+
+  defp mfe_analysis(trades) do
+    trades_with_mfe =
+      Enum.filter(trades, fn trade ->
+        Map.get(trade, :max_favorable_r) != nil
+      end)
+
+    %{
+      avg_mfe: calculate_avg_decimal(trades_with_mfe, :max_favorable_r),
+      avg_captured_pct: calculate_mfe_capture_percentage(trades_with_mfe),
+      left_on_table: calculate_left_on_table(trades_with_mfe)
+    }
+  end
+
+  defp mae_analysis(trades) do
+    trades_with_mae =
+      Enum.filter(trades, fn trade ->
+        Map.get(trade, :max_adverse_r) != nil
+      end)
+
+    %{
+      avg_mae: calculate_avg_decimal(trades_with_mae, :max_adverse_r),
+      winners_avg_mae: calculate_winners_avg_mae(trades_with_mae),
+      losers_avg_mae: calculate_losers_avg_mae(trades_with_mae)
+    }
+  end
+
+  defp calculate_avg_decimal([], _field), do: nil
+
+  defp calculate_avg_decimal(trades, field) do
+    values =
+      trades
+      |> Enum.map(&Map.get(&1, field))
+      |> Enum.reject(&is_nil/1)
+
+    if Enum.empty?(values) do
+      nil
+    else
+      sum = Enum.reduce(values, @zero, &Decimal.add/2)
+      Decimal.div(sum, Decimal.new(length(values))) |> Decimal.round(2)
+    end
+  end
+
+  defp calculate_mfe_capture_percentage([]), do: nil
+
+  defp calculate_mfe_capture_percentage(trades) do
+    # Capture rate = (actual R / MFE R) * 100 for winning trades
+    trades_with_data =
+      Enum.filter(trades, fn trade ->
+        mfe = Map.get(trade, :max_favorable_r)
+        r = Map.get(trade, :r_multiple)
+        mfe != nil && r != nil && Decimal.compare(mfe, @zero) == :gt
+      end)
+
+    if Enum.empty?(trades_with_data) do
+      nil
+    else
+      capture_rates =
+        Enum.map(trades_with_data, fn trade ->
+          mfe = Map.get(trade, :max_favorable_r)
+          r = Map.get(trade, :r_multiple)
+          # Capture rate as percentage (how much of MFE was captured)
+          Decimal.div(r, mfe) |> Decimal.mult(@hundred)
+        end)
+
+      avg =
+        capture_rates
+        |> Enum.reduce(@zero, &Decimal.add/2)
+        |> Decimal.div(Decimal.new(length(capture_rates)))
+        |> Decimal.round(2)
+
+      # Cap at 100% (can't capture more than MFE)
+      if Decimal.compare(avg, @hundred) == :gt, do: @hundred, else: avg
+    end
+  end
+
+  defp calculate_left_on_table([]), do: nil
+
+  defp calculate_left_on_table(trades) do
+    # Left on table = MFE - actual R (average)
+    trades_with_data =
+      Enum.filter(trades, fn trade ->
+        mfe = Map.get(trade, :max_favorable_r)
+        r = Map.get(trade, :r_multiple)
+        mfe != nil && r != nil
+      end)
+
+    if Enum.empty?(trades_with_data) do
+      nil
+    else
+      left_on_table_values =
+        Enum.map(trades_with_data, fn trade ->
+          mfe = Map.get(trade, :max_favorable_r)
+          r = Map.get(trade, :r_multiple)
+          # Can be negative if trade went worse than entry
+          Decimal.sub(mfe, r)
+        end)
+
+      left_on_table_values
+      |> Enum.reduce(@zero, &Decimal.add/2)
+      |> Decimal.div(Decimal.new(length(left_on_table_values)))
+      |> Decimal.round(2)
+    end
+  end
+
+  defp calculate_avg_partial_exits([]), do: @zero
+
+  defp calculate_avg_partial_exits(trades) do
+    total =
+      Enum.reduce(trades, 0, fn trade, acc ->
+        acc + (Map.get(trade, :partial_exit_count) || 0)
+      end)
+
+    (total / length(trades)) |> Float.round(2) |> Decimal.from_float()
+  end
+
+  defp compare_scaled_to_fixed(trades) do
+    scaled_trades =
+      Enum.filter(trades, fn trade ->
+        (Map.get(trade, :partial_exit_count) || 0) > 0
+      end)
+
+    fixed_trades =
+      Enum.filter(trades, fn trade ->
+        (Map.get(trade, :partial_exit_count) || 0) == 0 &&
+          get_exit_strategy_type(trade) == "fixed"
+      end)
+
+    if Enum.empty?(scaled_trades) || Enum.empty?(fixed_trades) do
+      nil
+    else
+      scaled_avg = calculate_average_r(scaled_trades)
+      fixed_avg = calculate_average_r(fixed_trades)
+
+      if scaled_avg && fixed_avg do
+        %{
+          scaled_avg_r: scaled_avg,
+          fixed_avg_r: fixed_avg,
+          r_difference: Decimal.sub(scaled_avg, fixed_avg) |> Decimal.round(2)
+        }
+      else
+        nil
+      end
+    end
+  end
+
+  defp calculate_winners_avg_mae(trades) do
+    winners =
+      Enum.filter(trades, fn trade ->
+        pnl = Map.get(trade, :pnl, @zero) || @zero
+        Decimal.compare(pnl, @zero) == :gt
+      end)
+
+    calculate_avg_decimal(winners, :max_adverse_r)
+  end
+
+  defp calculate_losers_avg_mae(trades) do
+    losers =
+      Enum.filter(trades, fn trade ->
+        pnl = Map.get(trade, :pnl, @zero) || @zero
+        Decimal.compare(pnl, @zero) == :lt
+      end)
+
+    calculate_avg_decimal(losers, :max_adverse_r)
   end
 end

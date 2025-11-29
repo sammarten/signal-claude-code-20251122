@@ -196,6 +196,155 @@ defmodule Signal.Backtest.VirtualAccount do
   end
 
   @doc """
+  Partially closes an open position, exiting a subset of shares.
+
+  Used for scaled exit strategies where a position is closed in multiple
+  tranches at different price targets.
+
+  ## Parameters
+
+    * `account` - Current account state
+    * `trade_id` - ID of the trade to partially close
+    * `params` - Map with:
+      * `:exit_price` - Exit price for this partial
+      * `:exit_time` - Exit timestamp
+      * `:shares_to_exit` - Number of shares to exit
+      * `:reason` - Exit reason (e.g., "target_1", "trailing_stop")
+      * `:target_index` - Optional index of target hit (for scaled exits)
+
+  ## Returns
+
+    * `{:ok, updated_account, partial_exit_record}` - Partial close successful
+    * `{:error, :not_found}` - Trade not found
+    * `{:error, :insufficient_shares}` - Not enough shares remaining
+    * `{:error, :invalid_shares}` - shares_to_exit must be positive
+
+  ## Example
+
+      {:ok, account, partial} = VirtualAccount.partial_close(account, trade_id, %{
+        exit_price: Decimal.new("176.00"),
+        exit_time: ~U[2024-01-15 10:00:00Z],
+        shares_to_exit: 50,
+        reason: "target_1",
+        target_index: 0
+      })
+  """
+  @spec partial_close(t(), String.t(), map()) :: {:ok, t(), map()} | {:error, atom()}
+  def partial_close(account, trade_id, params) do
+    with :ok <- validate_partial_close_params(params),
+         {:ok, trade} <- get_open_position(account, trade_id),
+         :ok <- validate_shares_available(trade, params.shares_to_exit) do
+      # Calculate P&L for this partial exit
+      pnl_per_share =
+        case trade.direction do
+          :long -> Decimal.sub(params.exit_price, trade.entry_price)
+          :short -> Decimal.sub(trade.entry_price, params.exit_price)
+        end
+
+      partial_pnl =
+        Decimal.mult(pnl_per_share, Decimal.new(params.shares_to_exit))
+        |> Decimal.round(2)
+
+      remaining_shares = trade.position_size - params.shares_to_exit
+
+      # Calculate R-multiple for this partial
+      r_multiple = calculate_partial_r(trade, partial_pnl, params.shares_to_exit)
+
+      # Calculate P&L percentage based on position value of exited shares
+      partial_position_value =
+        Decimal.mult(trade.entry_price, Decimal.new(params.shares_to_exit))
+
+      pnl_pct =
+        if Decimal.compare(partial_position_value, Decimal.new(0)) == :gt do
+          Decimal.div(partial_pnl, partial_position_value)
+          |> Decimal.mult(Decimal.new(100))
+          |> Decimal.round(2)
+        else
+          Decimal.new(0)
+        end
+
+      # Create partial exit record
+      partial_exit = %{
+        trade_id: trade_id,
+        exit_time: params.exit_time,
+        exit_price: params.exit_price,
+        shares_exited: params.shares_to_exit,
+        remaining_shares: remaining_shares,
+        exit_reason: format_exit_reason(params.reason),
+        target_index: Map.get(params, :target_index),
+        pnl: partial_pnl,
+        pnl_pct: pnl_pct,
+        r_multiple: r_multiple
+      }
+
+      # Calculate cash returned from exited shares
+      exit_value = Decimal.mult(params.exit_price, Decimal.new(params.shares_to_exit))
+
+      # Update the trade with reduced position size
+      updated_trade = %{trade | position_size: remaining_shares}
+
+      # Update account state
+      updated_account =
+        if remaining_shares == 0 do
+          # Position fully closed - move to closed trades
+          closed_trade = finalize_closed_trade(trade, params, partial_pnl, pnl_pct, r_multiple)
+
+          %{
+            account
+            | cash: Decimal.add(account.cash, exit_value),
+              current_equity: Decimal.add(account.current_equity, partial_pnl),
+              open_positions: Map.delete(account.open_positions, trade_id),
+              closed_trades: [closed_trade | account.closed_trades]
+          }
+        else
+          # Position still open with reduced size
+          %{
+            account
+            | cash: Decimal.add(account.cash, exit_value),
+              current_equity: Decimal.add(account.current_equity, partial_pnl),
+              open_positions: Map.put(account.open_positions, trade_id, updated_trade)
+          }
+        end
+
+      {:ok, updated_account, partial_exit}
+    end
+  end
+
+  @doc """
+  Updates an open position's stop loss price.
+
+  Used when trailing stops or breakeven management moves the stop.
+
+  ## Parameters
+
+    * `account` - Current account state
+    * `trade_id` - ID of the trade to update
+    * `new_stop` - New stop loss price
+
+  ## Returns
+
+    * `{:ok, updated_account}` - Stop updated successfully
+    * `{:error, :not_found}` - Trade not found
+  """
+  @spec update_stop(t(), String.t(), Decimal.t()) :: {:ok, t()} | {:error, :not_found}
+  def update_stop(account, trade_id, new_stop) do
+    case Map.get(account.open_positions, trade_id) do
+      nil ->
+        {:error, :not_found}
+
+      trade ->
+        updated_trade = %{trade | stop_loss: new_stop}
+
+        updated_account = %{
+          account
+          | open_positions: Map.put(account.open_positions, trade_id, updated_trade)
+        }
+
+        {:ok, updated_account}
+    end
+  end
+
+  @doc """
   Updates the equity curve with current equity value.
   """
   @spec record_equity(t(), DateTime.t()) :: t()
@@ -353,5 +502,85 @@ defmodule Signal.Backtest.VirtualAccount do
       pnl_pct: pnl_pct,
       r_multiple: r_multiple
     }
+  end
+
+  # Partial close helper functions
+
+  defp validate_partial_close_params(params) do
+    required = [:exit_price, :exit_time, :shares_to_exit, :reason]
+    missing = Enum.filter(required, &(!Map.has_key?(params, &1)))
+
+    cond do
+      not Enum.empty?(missing) ->
+        {:error, {:missing_params, missing}}
+
+      not is_integer(params.shares_to_exit) or params.shares_to_exit <= 0 ->
+        {:error, :invalid_shares}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp get_open_position(account, trade_id) do
+    case Map.get(account.open_positions, trade_id) do
+      nil -> {:error, :not_found}
+      trade -> {:ok, trade}
+    end
+  end
+
+  defp validate_shares_available(trade, shares_to_exit) do
+    if trade.position_size >= shares_to_exit do
+      :ok
+    else
+      {:error, :insufficient_shares}
+    end
+  end
+
+  defp calculate_partial_r(trade, pnl, shares_exited) do
+    # Calculate risk per share
+    risk_per_share =
+      case trade.direction do
+        :long -> Decimal.sub(trade.entry_price, trade.stop_loss)
+        :short -> Decimal.sub(trade.stop_loss, trade.entry_price)
+      end
+      |> Decimal.abs()
+
+    # Calculate total risk for exited shares
+    partial_risk = Decimal.mult(risk_per_share, Decimal.new(shares_exited))
+
+    if Decimal.compare(partial_risk, Decimal.new(0)) == :gt do
+      Decimal.div(pnl, partial_risk) |> Decimal.round(2)
+    else
+      Decimal.new(0)
+    end
+  end
+
+  defp format_exit_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_exit_reason(reason) when is_binary(reason), do: reason
+
+  defp finalize_closed_trade(trade, params, pnl, pnl_pct, r_multiple) do
+    Map.merge(trade, %{
+      status: format_exit_status(params.reason),
+      exit_price: params.exit_price,
+      exit_time: params.exit_time,
+      pnl: pnl,
+      pnl_pct: pnl_pct,
+      r_multiple: r_multiple
+    })
+  end
+
+  defp format_exit_status(reason) when is_atom(reason), do: reason
+
+  defp format_exit_status(reason) when is_binary(reason) do
+    case reason do
+      "target_" <> _ -> :target_hit
+      "trailing_stop" -> :trailing_stopped
+      "breakeven_stop" -> :stopped_out
+      "stopped_out" -> :stopped_out
+      "time_exit" -> :time_exit
+      "manual_exit" -> :manual_exit
+      _ -> :closed
+    end
   end
 end
