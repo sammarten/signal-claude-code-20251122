@@ -44,6 +44,7 @@ defmodule Signal.Optimization.ParameterGrid do
         }
 
   @valid_params [
+    # Strategy parameters
     :min_confluence_score,
     :min_risk_reward,
     :signal_grade_filter,
@@ -51,7 +52,14 @@ defmodule Signal.Optimization.ParameterGrid do
     :risk_per_trade,
     :time_exit_hour,
     :max_daily_trades,
-    :min_rr
+    :min_rr,
+    # Options parameters
+    :instrument_type,
+    :expiration_preference,
+    :strike_selection,
+    :slippage_pct,
+    :premium_target_multiple,
+    :premium_floor_pct
   ]
 
   @doc """

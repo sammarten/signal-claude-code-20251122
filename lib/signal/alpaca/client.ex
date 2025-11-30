@@ -592,4 +592,305 @@ defmodule Signal.Alpaca.Client do
   defp deep_merge_bars(map1, map2) do
     Map.merge(map1, map2, fn _k, v1, v2 -> v1 ++ v2 end)
   end
+
+  # =============================================================================
+  # Options API
+  # =============================================================================
+
+  @doc """
+  Get options contracts for one or more underlying symbols.
+
+  Fetches available options contracts from Alpaca's options API with optional
+  filtering by expiration date, strike price, and contract type.
+
+  ## Parameters
+
+    - `underlying_symbols` - String or list of underlying symbols (e.g., "AAPL" or ["AAPL", "SPY"])
+    - `opts` - Keyword list with options:
+      - `:expiration_date` - Specific expiration date (Date)
+      - `:expiration_date_gte` - Expiration on or after date (Date)
+      - `:expiration_date_lte` - Expiration on or before date (Date)
+      - `:strike_price_gte` - Strike price >= value (Decimal or number)
+      - `:strike_price_lte` - Strike price <= value (Decimal or number)
+      - `:type` - Contract type: "call" or "put"
+      - `:status` - Contract status: "active" (default) or "inactive"
+      - `:limit` - Maximum number of results (default 100)
+
+  ## Returns
+
+    - `{:ok, [contract_map]}` - List of contract data maps
+    - `{:error, reason}` - Error details
+
+  ## Examples
+
+      iex> Signal.Alpaca.Client.get_options_contracts("AAPL",
+      ...>   expiration_date_gte: ~D[2025-01-01],
+      ...>   expiration_date_lte: ~D[2025-01-31],
+      ...>   type: "call"
+      ...> )
+      {:ok, [%{"symbol" => "AAPL250117C00150000", ...}]}
+  """
+  @spec get_options_contracts(String.t() | [String.t()], keyword()) ::
+          {:ok, [map()]} | {:error, any()}
+  def get_options_contracts(underlying_symbols, opts \\ []) do
+    symbols =
+      case underlying_symbols do
+        list when is_list(list) -> list
+        single -> [single]
+      end
+
+    params =
+      %{underlying_symbols: Enum.join(symbols, ",")}
+      |> maybe_add_option_contract_params(opts)
+
+    case get("/v2/options/contracts", params) do
+      {:ok, %{"option_contracts" => contracts}} when is_list(contracts) ->
+        {:ok, contracts}
+
+      {:ok, %{"option_contracts" => nil}} ->
+        {:ok, []}
+
+      {:ok, response} when is_list(response) ->
+        {:ok, response}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Get a single options contract by its symbol.
+
+  ## Parameters
+
+    - `symbol` - The OSI format contract symbol (e.g., "AAPL250117C00150000")
+
+  ## Returns
+
+    - `{:ok, contract_map}` - Contract data
+    - `{:error, reason}` - Error details
+
+  ## Examples
+
+      iex> Signal.Alpaca.Client.get_options_contract("AAPL250117C00150000")
+      {:ok, %{"symbol" => "AAPL250117C00150000", "underlying_symbol" => "AAPL", ...}}
+  """
+  @spec get_options_contract(String.t()) :: {:ok, map()} | {:error, any()}
+  def get_options_contract(symbol) do
+    get("/v2/options/contracts/#{symbol}")
+  end
+
+  @doc """
+  Get historical bars for one or more options contracts.
+
+  Similar to `get_bars/2` but for options contracts. Returns OHLCV data
+  for the specified contract(s) and time range.
+
+  Note: Options data is only available from February 2024 onward.
+
+  ## Parameters
+
+    - `symbols` - String or list of OSI format contract symbols
+    - `opts` - Keyword list with options:
+      - `:start` (required) - DateTime for start of range
+      - `:end` (required) - DateTime for end of range
+      - `:timeframe` - String, default "1Min"
+      - `:limit` - Integer, max 10000 per page
+
+  ## Returns
+
+    - `{:ok, %{symbol => [bar_map]}}` - Map of symbols to list of bars
+    - `{:error, reason}` - Error details
+
+  ## Examples
+
+      iex> Signal.Alpaca.Client.get_options_bars(
+      ...>   "AAPL250117C00150000",
+      ...>   start: ~U[2024-06-01 09:30:00Z],
+      ...>   end: ~U[2024-06-01 16:00:00Z]
+      ...> )
+      {:ok, %{
+        "AAPL250117C00150000" => [%{timestamp: ~U[...], open: Decimal.new("5.20"), ...}]
+      }}
+  """
+  @spec get_options_bars(String.t() | [String.t()], keyword()) ::
+          {:ok, %{String.t() => [map()]}} | {:error, any()}
+  def get_options_bars(symbols, opts) when is_list(symbols) do
+    symbols_param = Enum.join(symbols, ",")
+    get_options_bars(symbols_param, opts)
+  end
+
+  def get_options_bars(symbols, opts) when is_binary(symbols) do
+    start_time = Keyword.fetch!(opts, :start)
+    end_time = Keyword.fetch!(opts, :end)
+    timeframe = Keyword.get(opts, :timeframe, "1Min")
+    limit = Keyword.get(opts, :limit, 10000)
+
+    params = %{
+      symbols: symbols,
+      start: format_datetime(start_time),
+      end: format_datetime(end_time),
+      timeframe: timeframe,
+      limit: limit
+    }
+
+    fetch_options_bars_with_pagination("/v1beta1/options/bars", params)
+  end
+
+  @doc """
+  Get the latest snapshot for an options contract.
+
+  Returns the most recent quote and trade data for the specified contract.
+
+  ## Parameters
+
+    - `symbol` - The OSI format contract symbol
+
+  ## Returns
+
+    - `{:ok, snapshot_map}` - Snapshot data with latest quote and trade
+    - `{:error, reason}` - Error details
+
+  ## Examples
+
+      iex> Signal.Alpaca.Client.get_options_snapshot("AAPL250117C00150000")
+      {:ok, %{
+        symbol: "AAPL250117C00150000",
+        latest_quote: %{bid_price: Decimal.new("5.10"), ...},
+        latest_trade: %{price: Decimal.new("5.15"), ...}
+      }}
+  """
+  @spec get_options_snapshot(String.t()) :: {:ok, map()} | {:error, any()}
+  def get_options_snapshot(symbol) do
+    case data_get("/v1beta1/options/snapshots/#{symbol}") do
+      {:ok, response} ->
+        {:ok, parse_options_snapshot(response)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # Private helpers for options API
+
+  defp maybe_add_option_contract_params(params, opts) do
+    params
+    |> maybe_add_date_param(:expiration_date, Keyword.get(opts, :expiration_date))
+    |> maybe_add_date_param(:expiration_date_gte, Keyword.get(opts, :expiration_date_gte))
+    |> maybe_add_date_param(:expiration_date_lte, Keyword.get(opts, :expiration_date_lte))
+    |> maybe_add_decimal_param(:strike_price_gte, Keyword.get(opts, :strike_price_gte))
+    |> maybe_add_decimal_param(:strike_price_lte, Keyword.get(opts, :strike_price_lte))
+    |> maybe_add_param(:type, Keyword.get(opts, :type))
+    |> maybe_add_param(:status, Keyword.get(opts, :status))
+    |> maybe_add_param(:limit, Keyword.get(opts, :limit))
+  end
+
+  defp maybe_add_param(params, _key, nil), do: params
+  defp maybe_add_param(params, key, value), do: Map.put(params, key, value)
+
+  defp maybe_add_date_param(params, _key, nil), do: params
+
+  defp maybe_add_date_param(params, key, %Date{} = date) do
+    Map.put(params, key, Date.to_iso8601(date))
+  end
+
+  defp maybe_add_date_param(params, key, date_string) when is_binary(date_string) do
+    Map.put(params, key, date_string)
+  end
+
+  defp maybe_add_decimal_param(params, _key, nil), do: params
+
+  defp maybe_add_decimal_param(params, key, %Decimal{} = value) do
+    Map.put(params, key, Decimal.to_string(value))
+  end
+
+  defp maybe_add_decimal_param(params, key, value) when is_number(value) do
+    Map.put(params, key, to_string(value))
+  end
+
+  defp fetch_options_bars_with_pagination(path, params, page \\ 0, accumulated \\ %{}) do
+    if page >= @max_pagination_pages do
+      Logger.warning(
+        "Hit maximum pagination limit (#{@max_pagination_pages} pages) for options bars request"
+      )
+
+      {:ok, accumulated}
+    else
+      case data_get(path, params) do
+        {:ok, response} ->
+          bars = parse_options_bars_response(response)
+          merged = deep_merge_bars(accumulated, bars)
+
+          case response["next_page_token"] do
+            nil ->
+              {:ok, merged}
+
+            "" ->
+              {:ok, merged}
+
+            token ->
+              new_params = Map.put(params, :page_token, token)
+              fetch_options_bars_with_pagination(path, new_params, page + 1, merged)
+          end
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp parse_options_bars_response(%{"bars" => bars_map}) when is_map(bars_map) do
+    Map.new(bars_map, fn {symbol, bars} ->
+      {symbol, Enum.map(bars, &parse_bar/1)}
+    end)
+  end
+
+  defp parse_options_bars_response(_), do: %{}
+
+  defp parse_options_snapshot(response) do
+    %{
+      symbol: response["symbol"],
+      latest_quote: parse_options_quote(response["latestQuote"]),
+      latest_trade: parse_options_trade(response["latestTrade"]),
+      implied_volatility: parse_decimal(response["impliedVolatility"]),
+      greeks: parse_greeks(response["greeks"])
+    }
+  end
+
+  defp parse_options_quote(nil), do: nil
+
+  defp parse_options_quote(quote_data) do
+    %{
+      bid_price: parse_decimal(quote_data["bp"]),
+      bid_size: quote_data["bs"],
+      ask_price: parse_decimal(quote_data["ap"]),
+      ask_size: quote_data["as"],
+      bid_exchange: quote_data["bx"],
+      ask_exchange: quote_data["ax"],
+      timestamp: parse_datetime!(quote_data["t"])
+    }
+  end
+
+  defp parse_options_trade(nil), do: nil
+
+  defp parse_options_trade(trade_data) do
+    %{
+      price: parse_decimal(trade_data["p"]),
+      size: trade_data["s"],
+      exchange: trade_data["x"],
+      timestamp: parse_datetime!(trade_data["t"])
+    }
+  end
+
+  defp parse_greeks(nil), do: nil
+
+  defp parse_greeks(greeks) do
+    %{
+      delta: parse_decimal(greeks["delta"]),
+      gamma: parse_decimal(greeks["gamma"]),
+      theta: parse_decimal(greeks["theta"]),
+      vega: parse_decimal(greeks["vega"]),
+      rho: parse_decimal(greeks["rho"])
+    }
+  end
 end
