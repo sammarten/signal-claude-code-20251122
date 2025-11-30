@@ -83,6 +83,18 @@ defmodule Signal.Backtest.SimulatedTrade do
     field :slippage, :decimal, default: Decimal.new(0)
     field :notes, :string
 
+    # Options-specific fields
+    field :instrument_type, :string, default: "equity"
+    field :contract_symbol, :string
+    field :underlying_symbol, :string
+    field :contract_type, :string
+    field :strike, :decimal
+    field :expiration_date, :date
+    field :entry_premium, :decimal
+    field :exit_premium, :decimal
+    field :num_contracts, :integer
+    field :options_exit_reason, :string
+
     timestamps(type: :utc_datetime_usec)
   end
 
@@ -114,7 +126,18 @@ defmodule Signal.Backtest.SimulatedTrade do
     :partial_exit_count,
     :fill_type,
     :slippage,
-    :notes
+    :notes,
+    # Options-specific fields
+    :instrument_type,
+    :contract_symbol,
+    :underlying_symbol,
+    :contract_type,
+    :strike,
+    :expiration_date,
+    :entry_premium,
+    :exit_premium,
+    :num_contracts,
+    :options_exit_reason
   ]
 
   @doc """
