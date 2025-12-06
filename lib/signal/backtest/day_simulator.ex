@@ -193,7 +193,9 @@ defmodule Signal.Backtest.DaySimulator do
             exit_price: exit_price,
             exit_time: exit_time,
             status: status,
-            r_multiple: r_multiple
+            r_multiple: r_multiple,
+            level_type: setup.level_type,
+            level_price: setup.level_price
           }
         end
       end

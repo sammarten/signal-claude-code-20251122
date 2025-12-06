@@ -212,7 +212,35 @@ defmodule SignalWeb.SymbolLive do
       Enum.find(socket.assigns.trades, &(&1.id == trade_id)) ||
         Enum.find(socket.assigns.simulated_trades, &(&1.id == trade_id))
 
-    {:noreply, assign(socket, :selected_trade, trade)}
+    socket = assign(socket, :selected_trade, trade)
+
+    # Load and push chart data if trade exists
+    socket =
+      if trade do
+        bars = load_trade_bars(trade)
+        formatted_bars = format_trade_detail_bars(bars)
+        formatted_trade = format_trade_for_detail_chart(trade)
+
+        level_data =
+          if Map.has_key?(trade, :level_type) and Map.has_key?(trade, :level_price) do
+            %{
+              type: to_string(trade.level_type),
+              price: decimal_to_string(trade.level_price)
+            }
+          else
+            nil
+          end
+
+        push_event(socket, "trade-chart-data", %{
+          bars: formatted_bars,
+          trade: formatted_trade,
+          level: level_data
+        })
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -391,6 +419,86 @@ defmodule SignalWeb.SymbolLive do
       _ -> "2.0"
     end
   end
+
+  # Load bars for trade detail chart (5 min before entry, 5 min after exit)
+  defp load_trade_bars(trade) do
+    if is_nil(trade.entry_time) do
+      []
+    else
+      # 5 minutes before entry
+      start_time = DateTime.add(trade.entry_time, -5 * 60, :second)
+
+      # 5 minutes after exit, or 15 minutes after entry if no exit
+      end_time =
+        if trade.exit_time do
+          DateTime.add(trade.exit_time, 5 * 60, :second)
+        else
+          DateTime.add(trade.entry_time, 15 * 60, :second)
+        end
+
+      symbol = to_string(trade.symbol)
+
+      from(b in Bar,
+        where: b.symbol == ^symbol,
+        where: b.bar_time >= ^start_time,
+        where: b.bar_time <= ^end_time,
+        order_by: [asc: b.bar_time]
+      )
+      |> Repo.all()
+    end
+  end
+
+  # Format bars for the trade detail chart
+  defp format_trade_detail_bars(bars) do
+    Enum.map(bars, fn bar ->
+      %{
+        time: DateTime.to_unix(bar.bar_time),
+        open: Decimal.to_string(bar.open),
+        high: Decimal.to_string(bar.high),
+        low: Decimal.to_string(bar.low),
+        close: Decimal.to_string(bar.close)
+      }
+    end)
+  end
+
+  # Format trade for the detail chart
+  defp format_trade_for_detail_chart(trade) do
+    %{
+      direction: to_string(trade.direction),
+      entry_price: decimal_to_string(trade.entry_price),
+      entry_time: datetime_to_unix(trade.entry_time),
+      stop_loss: decimal_to_string(trade.stop_loss),
+      take_profit: decimal_to_string(trade.take_profit),
+      exit_price: decimal_to_string(trade.exit_price),
+      exit_time: datetime_to_unix(trade.exit_time),
+      status: to_string(trade.status)
+    }
+  end
+
+  defp decimal_to_string(nil), do: nil
+  defp decimal_to_string(d), do: Decimal.to_string(d)
+
+  defp datetime_to_unix(nil), do: nil
+  defp datetime_to_unix(dt), do: DateTime.to_unix(dt)
+
+  defp format_level_type(type) when is_atom(type) do
+    case type do
+      :pdh -> "Previous Day High"
+      :pdl -> "Previous Day Low"
+      :pmh -> "Premarket High"
+      :pml -> "Premarket Low"
+      :or5h -> "5min Opening Range High"
+      :or5l -> "5min Opening Range Low"
+      :or15h -> "15min Opening Range High"
+      :or15l -> "15min Opening Range Low"
+      _ -> to_string(type) |> String.upcase()
+    end
+  end
+
+  defp format_level_type(type) when is_binary(type),
+    do: format_level_type(String.to_existing_atom(type))
+
+  defp format_level_type(_), do: "Unknown"
 
   defp format_price(nil), do: "-"
 
@@ -828,7 +936,7 @@ defmodule SignalWeb.SymbolLive do
           phx-click="close_trade_details"
         >
           <div
-            class="bg-zinc-900 rounded-2xl border border-zinc-700 shadow-2xl max-w-lg w-full mx-4"
+            class="bg-zinc-900 rounded-2xl border border-zinc-700 shadow-2xl max-w-xl w-full mx-4"
             phx-click-away="close_trade_details"
           >
             <div class="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
@@ -872,6 +980,19 @@ defmodule SignalWeb.SymbolLive do
                 </div>
               </div>
               
+    <!-- Trade Chart -->
+              <div class="bg-zinc-800/50 rounded-xl p-4">
+                <div class="text-xs text-zinc-500 mb-2">PRICE ACTION</div>
+                <div
+                  id="trade-detail-chart"
+                  phx-hook="TradeDetailChart"
+                  phx-update="ignore"
+                  class="w-full flex justify-center"
+                  style="height: 250px;"
+                >
+                </div>
+              </div>
+              
     <!-- Price Levels -->
               <div class="bg-zinc-800/50 rounded-xl p-4">
                 <div class="grid grid-cols-4 gap-4 text-center">
@@ -909,6 +1030,26 @@ defmodule SignalWeb.SymbolLive do
                   </div>
                 </div>
               </div>
+              
+    <!-- Key Level (if available) -->
+              <%= if Map.get(@selected_trade, :level_type) do %>
+                <div class="bg-zinc-800/50 rounded-xl p-4">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-xs text-zinc-500 mb-1">KEY LEVEL</div>
+                      <div class="text-sm font-medium text-amber-400">
+                        {format_level_type(@selected_trade.level_type)}
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-xs text-zinc-500 mb-1">LEVEL PRICE</div>
+                      <div class="text-lg font-mono font-semibold text-amber-400">
+                        {format_price(@selected_trade.level_price)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
               
     <!-- Times -->
               <div class="grid grid-cols-2 gap-4">
