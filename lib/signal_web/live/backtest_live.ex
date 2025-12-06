@@ -215,7 +215,8 @@ defmodule SignalWeb.BacktestLive do
       "initial_capital" => "100000",
       "risk_per_trade" => "1.0",
       "min_confluence" => "7",
-      "min_rr" => "2.0"
+      "min_rr" => "2.0",
+      "signal_evaluation_mode" => "false"
     }
   end
 
@@ -228,6 +229,9 @@ defmodule SignalWeb.BacktestLive do
          {min_rr, _} <- Float.parse(params["min_rr"]),
          :ok <- validate_symbols(assigns.selected_symbols),
          :ok <- validate_strategies(assigns.selected_strategies) do
+      # Signal evaluation mode = unlimited capital (execute every signal)
+      signal_eval_mode = params["signal_evaluation_mode"] == "true"
+
       {:ok,
        %{
          symbols: assigns.selected_symbols,
@@ -236,6 +240,7 @@ defmodule SignalWeb.BacktestLive do
          strategies: Enum.map(assigns.selected_strategies, &String.to_atom/1),
          initial_capital: Decimal.new(trunc(capital)),
          risk_per_trade: Decimal.from_float(risk / 100),
+         unlimited_capital: signal_eval_mode,
          parameters: %{
            min_confluence: min_confluence,
            min_rr: Decimal.from_float(min_rr)
@@ -519,6 +524,29 @@ defmodule SignalWeb.BacktestLive do
                       {label}
                     </button>
                   <% end %>
+                </div>
+              </div>
+              
+    <!-- Signal Evaluation Mode Toggle -->
+              <div class="bg-zinc-900/50 rounded-xl border border-zinc-800 p-6">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <h3 class="text-lg font-bold text-white">Signal Evaluation Mode</h3>
+                    <p class="text-sm text-zinc-500 mt-1">
+                      Execute every signal regardless of capital. Useful for evaluating strategy signals without portfolio constraints.
+                    </p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="backtest[signal_evaluation_mode]"
+                      value="true"
+                      checked={@form[:signal_evaluation_mode].value == "true"}
+                      class="sr-only peer"
+                    />
+                    <div class="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                    </div>
+                  </label>
                 </div>
               </div>
               

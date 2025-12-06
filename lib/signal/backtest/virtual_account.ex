@@ -43,7 +43,8 @@ defmodule Signal.Backtest.VirtualAccount do
     :open_positions,
     :closed_trades,
     :equity_curve,
-    :trade_count
+    :trade_count,
+    :unlimited_capital
   ]
 
   @type t :: %__MODULE__{
@@ -54,7 +55,8 @@ defmodule Signal.Backtest.VirtualAccount do
           open_positions: %{String.t() => map()},
           closed_trades: [map()],
           equity_curve: [{DateTime.t(), Decimal.t()}],
-          trade_count: integer()
+          trade_count: integer(),
+          unlimited_capital: boolean()
         }
 
   @doc """
@@ -64,9 +66,11 @@ defmodule Signal.Backtest.VirtualAccount do
 
     * `initial_capital` - Starting balance as Decimal
     * `risk_per_trade` - Fraction of equity to risk per trade (e.g., 0.01 for 1%)
+    * `opts` - Keyword list of options:
+      * `:unlimited_capital` - When true, executes every signal regardless of capital (signal evaluation mode)
   """
-  @spec new(Decimal.t(), Decimal.t()) :: t()
-  def new(initial_capital, risk_per_trade \\ Decimal.new("0.01")) do
+  @spec new(Decimal.t(), Decimal.t(), keyword()) :: t()
+  def new(initial_capital, risk_per_trade \\ Decimal.new("0.01"), opts \\ []) do
     %__MODULE__{
       initial_capital: initial_capital,
       risk_per_trade: risk_per_trade,
@@ -75,7 +79,8 @@ defmodule Signal.Backtest.VirtualAccount do
       open_positions: %{},
       closed_trades: [],
       equity_curve: [],
-      trade_count: 0
+      trade_count: 0,
+      unlimited_capital: Keyword.get(opts, :unlimited_capital, false)
     }
   end
 
@@ -414,9 +419,6 @@ defmodule Signal.Backtest.VirtualAccount do
   end
 
   defp calculate_position_size(account, params) do
-    # Calculate risk amount (% of current equity)
-    risk_amount = Decimal.mult(account.current_equity, account.risk_per_trade)
-
     # Calculate price risk per share
     price_risk =
       case params.direction do
@@ -431,33 +433,42 @@ defmodule Signal.Backtest.VirtualAccount do
     if Decimal.compare(price_risk, Decimal.new(0)) != :gt do
       {:error, :invalid_stop_loss}
     else
-      # Calculate position size (shares)
-      position_size =
-        Decimal.div(risk_amount, price_risk)
-        |> Decimal.round(0, :floor)
-        |> Decimal.to_integer()
+      # In signal evaluation mode (unlimited capital), use position_size=1
+      # R-multiple is calculated purely from price movement, position size is irrelevant
+      if account.unlimited_capital do
+        # risk_amount = price_risk (for 1 share), used for R-multiple calculation
+        {:ok, 1, price_risk}
+      else
+        # Normal mode: calculate position size based on risk percentage
+        risk_amount = Decimal.mult(account.current_equity, account.risk_per_trade)
 
-      # Ensure at least 1 share
-      position_size = max(position_size, 1)
-
-      # Check if we have enough cash
-      position_value = Decimal.mult(params.entry_price, Decimal.new(position_size))
-
-      if Decimal.compare(position_value, account.cash) == :gt do
-        # Reduce position size to fit available cash
-        max_shares =
-          Decimal.div(account.cash, params.entry_price)
+        position_size =
+          Decimal.div(risk_amount, price_risk)
           |> Decimal.round(0, :floor)
           |> Decimal.to_integer()
 
-        if max_shares < 1 do
-          {:error, :insufficient_funds}
+        # Ensure at least 1 share
+        position_size = max(position_size, 1)
+
+        # Check if we have enough cash
+        position_value = Decimal.mult(params.entry_price, Decimal.new(position_size))
+
+        if Decimal.compare(position_value, account.cash) == :gt do
+          # Reduce position size to fit available cash
+          max_shares =
+            Decimal.div(account.cash, params.entry_price)
+            |> Decimal.round(0, :floor)
+            |> Decimal.to_integer()
+
+          if max_shares < 1 do
+            {:error, :insufficient_funds}
+          else
+            adjusted_risk = Decimal.mult(price_risk, Decimal.new(max_shares))
+            {:ok, max_shares, adjusted_risk}
+          end
         else
-          adjusted_risk = Decimal.mult(price_risk, Decimal.new(max_shares))
-          {:ok, max_shares, adjusted_risk}
+          {:ok, position_size, risk_amount}
         end
-      else
-        {:ok, position_size, risk_amount}
       end
     end
   end
