@@ -70,6 +70,7 @@ defmodule Signal.Backtest.Coordinator do
       * `:parameters` - Strategy parameters map (optional)
       * `:speed` - `:instant` or `:realtime` (default: `:instant`)
       * `:session_filter` - `:regular` or `:all` (default: `:regular`)
+      * `:unlimited_capital` - When true, executes every signal regardless of capital (signal evaluation mode)
 
     * `progress_callback` - Optional function called with progress updates
 
@@ -231,10 +232,23 @@ defmodule Signal.Backtest.Coordinator do
       clock = StateManager.get_clock(run_id)
 
       # Create virtual account for trade simulation
-      account = VirtualAccount.new(config.initial_capital, config.risk_per_trade)
+      # Pass unlimited_capital option for signal evaluation mode
+      signal_eval_mode = Map.get(config, :unlimited_capital, false)
+
+      account_opts =
+        if signal_eval_mode do
+          [unlimited_capital: true]
+        else
+          []
+        end
+
+      account = VirtualAccount.new(config.initial_capital, config.risk_per_trade, account_opts)
 
       # Create fill simulator config
-      fill_config = FillSimulator.new(:signal_price)
+      # In signal evaluation mode, use bar_close to get actual market price at signal time
+      # In normal mode, use signal_price (calculated entry levels)
+      fill_type = if signal_eval_mode, do: :bar_close, else: :signal_price
+      fill_config = FillSimulator.new(fill_type)
 
       # Start trade simulator
       trade_simulator_opts = [

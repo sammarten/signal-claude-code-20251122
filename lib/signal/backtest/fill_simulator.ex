@@ -36,7 +36,7 @@ defmodule Signal.Backtest.FillSimulator do
     :max_slippage_pct
   ]
 
-  @type fill_type :: :signal_price | :next_bar_open | :vwap
+  @type fill_type :: :signal_price | :next_bar_open | :vwap | :bar_close
   @type slippage_type :: :none | :fixed | :random
 
   @type t :: %__MODULE__{
@@ -55,6 +55,7 @@ defmodule Signal.Backtest.FillSimulator do
       * `:signal_price` - Fill at signal's entry price (default)
       * `:next_bar_open` - Fill at next bar's open
       * `:vwap` - Fill at bar's VWAP
+      * `:bar_close` - Fill at the current bar's close (for signal evaluation)
 
     * `:slippage` - Slippage model:
       * `:none` - No slippage (default)
@@ -91,22 +92,29 @@ defmodule Signal.Backtest.FillSimulator do
   """
   @spec entry_fill(t(), Decimal.t(), atom(), map() | nil) ::
           {:ok, Decimal.t(), Decimal.t()} | {:error, atom()}
-  def entry_fill(config, signal_price, direction, next_bar \\ nil) do
+  def entry_fill(config, signal_price, direction, current_bar \\ nil) do
     base_price =
       case config.fill_type do
         :signal_price ->
           signal_price
 
         :next_bar_open ->
-          if next_bar do
-            next_bar.open
+          if current_bar do
+            current_bar.open
+          else
+            signal_price
+          end
+
+        :bar_close ->
+          if current_bar do
+            current_bar.close
           else
             signal_price
           end
 
         :vwap ->
-          if next_bar && next_bar.vwap do
-            next_bar.vwap
+          if current_bar && current_bar.vwap do
+            current_bar.vwap
           else
             signal_price
           end

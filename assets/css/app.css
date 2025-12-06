@@ -205,3 +205,32 @@ html {
   width: 100%;
   height: 100%;
 }
+
+/* Shimmer/spotlight text animation - like Claude's thinking animation */
+@keyframes text-shimmer {
+  0% {
+    background-position: 100% center;
+  }
+  50% {
+    background-position: 0% center;
+  }
+  100% {
+    background-position: 0% center;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    #6ee7b7 0%,      /* emerald-300 */
+    #6ee7b7 35%,
+    #ffffff 50%,      /* bright spotlight */
+    #6ee7b7 65%,
+    #6ee7b7 100%
+  );
+  background-size: 300% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 5s ease-in-out infinite;
+}
