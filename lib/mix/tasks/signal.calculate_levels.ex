@@ -13,6 +13,9 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
       # Calculate levels for a specific date
       mix signal.calculate_levels --date 2024-11-25
 
+      # Calculate levels for an entire year
+      mix signal.calculate_levels --year 2024
+
       # Recalculate even if levels already exist
       mix signal.calculate_levels --force
 
@@ -20,6 +23,7 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
 
     * `--symbols` - Comma-separated list of symbols (default: all configured symbols)
     * `--date` - Date to calculate levels for in YYYY-MM-DD format (default: today)
+    * `--year` - Calculate levels for all trading days in the specified year
     * `--force` - Recalculate even if levels already exist for the date
 
   ## Notes
@@ -31,7 +35,11 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
   """
 
   use Mix.Task
+  import Ecto.Query
   alias Signal.Technicals.Levels
+  alias Signal.Technicals.KeyLevels
+  alias Signal.Data.MarketCalendar
+  alias Signal.Repo
 
   @shortdoc "Calculate key levels (PDH/PDL, PMH/PML, opening ranges)"
 
@@ -41,8 +49,8 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
 
     {opts, _args, _} =
       OptionParser.parse(args,
-        strict: [symbols: :string, date: :string, force: :boolean],
-        aliases: [s: :symbols, d: :date, f: :force]
+        strict: [symbols: :string, date: :string, year: :integer, force: :boolean],
+        aliases: [s: :symbols, d: :date, y: :year, f: :force]
       )
 
     # Get symbols
@@ -58,25 +66,39 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
           |> Enum.map(&String.upcase/1)
       end
 
-    # Get date
-    date =
-      case Keyword.get(opts, :date) do
-        nil ->
-          Date.utc_today()
-
-        date_str ->
-          case Date.from_iso8601(date_str) do
-            {:ok, date} ->
-              date
-
-            {:error, _} ->
-              Mix.shell().error("Invalid date format: #{date_str}. Use YYYY-MM-DD.")
-              System.halt(1)
-          end
-      end
-
     force = Keyword.get(opts, :force, false)
 
+    # Check if year mode or single date mode
+    case Keyword.get(opts, :year) do
+      nil ->
+        # Single date mode
+        date = parse_date(opts)
+        run_single_date(symbols, date, force)
+
+      year ->
+        # Year mode - calculate for all trading days in the year
+        run_year(symbols, year, force)
+    end
+  end
+
+  defp parse_date(opts) do
+    case Keyword.get(opts, :date) do
+      nil ->
+        Date.utc_today()
+
+      date_str ->
+        case Date.from_iso8601(date_str) do
+          {:ok, date} ->
+            date
+
+          {:error, _} ->
+            Mix.shell().error("Invalid date format: #{date_str}. Use YYYY-MM-DD.")
+            System.halt(1)
+        end
+    end
+  end
+
+  defp run_single_date(symbols, date, force) do
     Mix.shell().info("\n📊 Calculating Key Levels")
     Mix.shell().info("   Date: #{date}")
     Mix.shell().info("   Symbols: #{Enum.join(symbols, ", ")}")
@@ -89,7 +111,53 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
         calculate_for_symbol(symbol_atom, date, force)
       end)
 
-    # Summary
+    print_summary(results)
+  end
+
+  defp run_year(symbols, year, force) do
+    # Get all trading days in the year
+    start_date = Date.new!(year, 1, 1)
+    year_end = Date.new!(year, 12, 31)
+    today = Date.utc_today()
+
+    end_date =
+      if Date.compare(year_end, today) == :gt do
+        today
+      else
+        year_end
+      end
+
+    trading_days = MarketCalendar.trading_days_between(start_date, end_date)
+    total_days = length(trading_days)
+
+    Mix.shell().info("\n📊 Calculating Key Levels for #{year}")
+    Mix.shell().info("   Trading days: #{total_days}")
+    Mix.shell().info("   Symbols: #{Enum.join(symbols, ", ")}")
+    Mix.shell().info("   Force recalculate: #{force}\n")
+
+    # Process each trading day
+    all_results =
+      trading_days
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {date, index} ->
+        # Progress indicator
+        progress = Float.round(index / total_days * 100, 1)
+        IO.write("\r   Processing #{date} (#{index}/#{total_days}) - #{progress}%   ")
+
+        # Calculate levels for each symbol on this date
+        Enum.map(symbols, fn symbol ->
+          symbol_atom = String.to_atom(symbol)
+          calculate_for_symbol_quiet(symbol_atom, date, force)
+        end)
+      end)
+
+    # Clear the progress line
+    IO.write("\r" <> String.duplicate(" ", 60) <> "\r")
+
+    print_summary(all_results)
+  end
+
+  defp print_summary(results) do
     successes = Enum.count(results, fn {status, _} -> status == :ok end)
     failures = Enum.count(results, fn {status, _} -> status == :error end)
     skipped = Enum.count(results, fn {status, _} -> status == :skipped end)
@@ -132,6 +200,35 @@ defmodule Mix.Tasks.Signal.CalculateLevels do
 
           {:error, reason} ->
             Mix.shell().error("❌ #{symbol}: Failed - #{inspect(reason)}")
+            {:error, symbol}
+        end
+    end
+  end
+
+  # Quiet version for batch processing (year mode) - no output, just returns result
+  defp calculate_for_symbol_quiet(symbol, date, force) do
+    symbol_str = to_string(symbol)
+
+    # Check if levels already exist for this specific date
+    existing =
+      Repo.one(
+        from(l in KeyLevels,
+          where: l.symbol == ^symbol_str and l.date == ^date
+        )
+      )
+
+    case {existing, force} do
+      {%KeyLevels{}, false} ->
+        {:skipped, symbol}
+
+      _ ->
+        case Levels.calculate_daily_levels(symbol, date) do
+          {:ok, levels} ->
+            # Also try to calculate opening ranges
+            _levels = maybe_update_opening_ranges(symbol, date, levels)
+            {:ok, symbol}
+
+          {:error, _reason} ->
             {:error, symbol}
         end
     end
