@@ -206,6 +206,36 @@ defmodule SignalWeb.SymbolLive do
   end
 
   @impl true
+  def handle_event("prev_day", _params, socket) do
+    current_date = socket.assigns.selected_date
+    min_date = socket.assigns.min_date
+
+    # Find previous trading day
+    prev_date = find_previous_trading_day(current_date)
+
+    if prev_date && (is_nil(min_date) || Date.compare(prev_date, min_date) != :lt) do
+      navigate_to_date(socket, prev_date)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("next_day", _params, socket) do
+    current_date = socket.assigns.selected_date
+    max_date = socket.assigns.max_date
+
+    # Find next trading day
+    next_date = find_next_trading_day(current_date)
+
+    if next_date && (is_nil(max_date) || Date.compare(next_date, max_date) != :gt) do
+      navigate_to_date(socket, next_date)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
   def handle_event("select_trade", %{"id" => trade_id}, socket) do
     # Look in both persisted trades and simulated trades
     trade =
@@ -296,6 +326,57 @@ defmodule SignalWeb.SymbolLive do
         nil
       end
     end)
+  end
+
+  defp find_next_trading_day(date) do
+    # Look forward up to 10 days to find a trading day
+    Enum.find_value(1..10, fn days_forward ->
+      candidate = Date.add(date, days_forward)
+
+      if MarketCalendar.trading_day?(candidate) do
+        candidate
+      else
+        nil
+      end
+    end)
+  end
+
+  defp navigate_to_date(socket, date) do
+    calendar_month =
+      if date.month != socket.assigns.calendar_month.month ||
+           date.year != socket.assigns.calendar_month.year do
+        Date.beginning_of_month(date)
+      else
+        socket.assigns.calendar_month
+      end
+
+    updated_socket =
+      socket
+      |> assign(
+        selected_date: date,
+        calendar_month: calendar_month,
+        trading_days: load_trading_days_for_month(calendar_month),
+        simulated_trades: [],
+        simulation_ran: false
+      )
+      |> load_data_for_date()
+
+    formatted_bars = format_bars_for_chart(updated_socket.assigns.bars)
+
+    formatted_trades =
+      format_trades_for_chart(
+        updated_socket.assigns.trades,
+        updated_socket.assigns.simulated_trades
+      )
+
+    formatted_levels = format_levels_for_chart(updated_socket.assigns.key_levels)
+
+    {:noreply,
+     push_event(updated_socket, "chart-data-updated", %{
+       bars: formatted_bars,
+       trades: formatted_trades,
+       levels: formatted_levels
+     })}
   end
 
   defp load_bars_for_date(symbol, date) do
@@ -389,6 +470,7 @@ defmodule SignalWeb.SymbolLive do
       target_r = calculate_target_r(trade)
 
       %{
+        id: trade.id,
         direction: to_string(trade.direction),
         entry_price: format_price(trade.entry_price),
         entry_time: DateTime.to_unix(trade.entry_time),
@@ -592,36 +674,56 @@ defmodule SignalWeb.SymbolLive do
         <!-- Calendar - Compact with hover expand -->
         <div class="group relative">
           <!-- Collapsed view - always visible -->
-          <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 px-6 py-3 flex items-center justify-center gap-4 cursor-pointer">
-            <svg
-              class="w-5 h-5 text-zinc-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+          <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 px-6 py-3 flex items-center justify-center gap-2">
+            <button
+              phx-click="prev_day"
+              class="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+              title="Previous trading day"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
-            <span class="text-lg font-semibold text-white">
-              {Calendar.strftime(@selected_date, "%A, %B %d, %Y")}
-            </span>
-            <svg
-              class="w-4 h-4 text-zinc-500 transition-transform group-hover:rotate-180"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+              <svg class="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div class="flex items-center gap-3 cursor-pointer px-2">
+              <svg
+                class="w-5 h-5 text-zinc-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
+              </svg>
+              <span class="text-lg font-semibold text-white">
+                {Calendar.strftime(@selected_date, "%A, %B %d, %Y")}
+              </span>
+              <svg
+                class="w-4 h-4 text-zinc-500 transition-transform group-hover:rotate-180"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </div>
+            <button
+              phx-click="next_day"
+              class="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+              title="Next trading day"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
+              <svg class="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
           </div>
           
     <!-- Expanded calendar - shows on hover -->
@@ -772,16 +874,46 @@ defmodule SignalWeb.SymbolLive do
             </div>
           <% end %>
         </div>
-        
-    <!-- Trades - Full Width -->
+
+    <!-- Run Simulation Button (shown when simulation hasn't been run) -->
+        <%= if !@simulation_ran do %>
+          <div class="flex justify-center">
+            <button
+              phx-click="run_simulation"
+              class="inline-flex items-center gap-3 px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl border border-zinc-700 hover:border-emerald-600 transition-all group"
+            >
+              <svg
+                class="w-5 h-5 text-emerald-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <span class="font-medium text-white animate-shimmer">Run break & retest simulation</span>
+            </button>
+          </div>
+        <% end %>
+
+    <!-- Trades - Full Width (only shown after simulation has run) -->
+        <%= if @simulation_ran do %>
         <% all_trades = @trades ++ @simulated_trades %>
         <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden">
           <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
             <div class="flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <h3 class="text-lg font-semibold text-white">
-                  Trades ({length(all_trades)})
-                </h3>
+              <div class="flex items-baseline gap-3">
+                <h3 class="text-lg font-semibold text-white">Trades</h3>
                 <%= if length(@simulated_trades) > 0 do %>
                   <span class="px-2 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-400 rounded">
                     {length(@simulated_trades)} simulated
@@ -809,35 +941,7 @@ defmodule SignalWeb.SymbolLive do
 
           <%= if Enum.empty?(all_trades) do %>
             <div class="p-8 text-center">
-              <%= if @simulation_ran do %>
-                <p class="text-zinc-500">No break & retest setups found for this date.</p>
-              <% else %>
-                <button
-                  phx-click="run_simulation"
-                  class="inline-flex items-center gap-3 px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl border border-zinc-700 hover:border-emerald-600 transition-all group"
-                >
-                  <svg
-                    class="w-5 h-5 text-emerald-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                    />
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span class="font-medium animate-shimmer">Run break & retest simulation</span>
-                </button>
-              <% end %>
+              <p class="text-zinc-500">No break & retest setups found for this date.</p>
             </div>
           <% else %>
             <div class="overflow-x-auto">
@@ -870,9 +974,10 @@ defmodule SignalWeb.SymbolLive do
                     </th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-zinc-800">
+                <tbody id="trades-table" phx-hook="TradesTable" class="divide-y divide-zinc-800">
                   <tr
                     :for={trade <- all_trades}
+                    data-trade-id={trade.id}
                     phx-click="select_trade"
                     phx-value-id={trade.id}
                     class="hover:bg-zinc-800/50 cursor-pointer transition-colors"
@@ -887,7 +992,9 @@ defmodule SignalWeb.SymbolLive do
                       </span>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm text-zinc-300">
-                      {format_time_et(trade.entry_time)}
+                      <time data-utc={DateTime.to_unix(trade.entry_time) * 1000}>
+                        {format_time_et(trade.entry_time)}
+                      </time>
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-white text-right">
                       {format_price(trade.entry_price)}
@@ -927,8 +1034,9 @@ defmodule SignalWeb.SymbolLive do
             </div>
           <% end %>
         </div>
+        <% end %>
       </div>
-      
+
     <!-- Trade Detail Modal -->
       <%= if @selected_trade do %>
         <div

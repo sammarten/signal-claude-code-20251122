@@ -123,6 +123,59 @@ export const TradeDetailChart = {
 
     // Fit content to show all data
     this.chart.timeScale().fitContent();
+
+    // Ensure all trade levels are visible in the price scale
+    this.fitPriceScale(candleData, trade, level);
+  },
+
+  fitPriceScale(candleData, trade, level) {
+    // Collect all prices that need to be visible
+    const prices = [];
+
+    // Add bar highs and lows
+    for (const bar of candleData) {
+      prices.push(bar.high);
+      prices.push(bar.low);
+    }
+
+    // Add trade levels
+    if (trade) {
+      if (trade.entry_price) prices.push(parseFloat(trade.entry_price));
+      if (trade.stop_loss) prices.push(parseFloat(trade.stop_loss));
+      if (trade.take_profit) prices.push(parseFloat(trade.take_profit));
+      if (trade.exit_price) prices.push(parseFloat(trade.exit_price));
+    }
+
+    // Add key level
+    if (level && level.price) {
+      prices.push(parseFloat(level.price));
+    }
+
+    if (prices.length === 0) return;
+
+    // Calculate min and max with some padding
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const range = maxPrice - minPrice;
+    const padding = range * 0.08; // 8% padding on each side
+
+    // Store the price range for the autoscale provider
+    this._priceRange = {
+      minValue: minPrice - padding,
+      maxValue: maxPrice + padding,
+    };
+
+    // Update the series with custom autoscale provider
+    this.candleSeries.applyOptions({
+      autoscaleInfoProvider: () => ({
+        priceRange: this._priceRange,
+      }),
+    });
+
+    // Force the chart to re-autoscale with the new provider
+    this.candleSeries.priceScale().applyOptions({
+      autoScale: true,
+    });
   },
 
   clearPriceLines() {

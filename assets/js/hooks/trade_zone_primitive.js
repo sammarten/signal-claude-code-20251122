@@ -11,6 +11,7 @@ export class TradeZonePrimitive {
     this._trades = [];
     this._chart = null;
     this._series = null;
+    this._highlightedTradeId = null;
     this._paneView = new TradeZonePaneView(this);
   }
 
@@ -26,6 +27,14 @@ export class TradeZonePrimitive {
 
   setTrades(trades) {
     this._trades = trades || [];
+  }
+
+  setHighlightedTrade(tradeId) {
+    this._highlightedTradeId = tradeId;
+  }
+
+  getHighlightedTradeId() {
+    return this._highlightedTradeId;
   }
 
   updateAllViews() {
@@ -60,6 +69,7 @@ class TradeZonePaneView {
         const trades = this._source.getTrades();
         const chart = this._source.getChart();
         const series = this._source.getSeries();
+        const highlightedId = this._source.getHighlightedTradeId();
 
         if (!trades || trades.length === 0 || !chart || !series) {
           return;
@@ -70,14 +80,15 @@ class TradeZonePaneView {
           const timeScale = chart.timeScale();
 
           for (const trade of trades) {
-            this._drawTradeZone(ctx, trade, timeScale, series, scope.mediaSize);
+            const isHighlighted = highlightedId && trade.id === highlightedId;
+            this._drawTradeZone(ctx, trade, timeScale, series, scope.mediaSize, isHighlighted);
           }
         });
       },
     };
   }
 
-  _drawTradeZone(ctx, trade, timeScale, series, mediaSize) {
+  _drawTradeZone(ctx, trade, timeScale, series, mediaSize, isHighlighted = false) {
     const entryPrice = parseFloat(trade.entry_price);
     const stopPrice = parseFloat(trade.stop_loss);
     const targetPrice = trade.take_profit && trade.take_profit !== '-' ? parseFloat(trade.take_profit) : null;
@@ -119,55 +130,61 @@ class TradeZonePaneView {
 
     ctx.save();
 
+    // Calculate zone bounds
+    let zoneStartX = startX;
+    let zoneEndX = endX;
+    let zoneWidth = endX - startX;
+
+    // When highlighted, expand the zone by 25% and add shadow
+    if (isHighlighted) {
+      const expandAmount = zoneWidth * 0.125; // 12.5% on each side = 25% total
+      zoneStartX = startX - expandAmount;
+      zoneEndX = endX + expandAmount;
+      zoneWidth = zoneEndX - zoneStartX;
+
+      // Add shadow effect
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 4;
+    }
+
+    // Use higher opacity when highlighted (on hover)
+    const riskOpacity = isHighlighted ? 0.5 : 0.15;
+    const rewardOpacity = isHighlighted ? 0.5 : 0.15;
+
+    // Calculate vertical expansion for highlighted state
+    const riskTop = Math.min(entryY, stopY);
+    const riskHeight = Math.abs(stopY - entryY);
+    let drawRiskTop = riskTop;
+    let drawRiskHeight = riskHeight;
+
+    if (isHighlighted) {
+      const verticalExpand = riskHeight * 0.125;
+      drawRiskTop = riskTop - verticalExpand;
+      drawRiskHeight = riskHeight + verticalExpand * 2;
+    }
+
     // Draw risk zone (entry to stop) - red with transparency
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.15)'; // red-500 with low opacity
-    ctx.fillRect(
-      startX,
-      Math.min(entryY, stopY),
-      endX - startX,
-      Math.abs(stopY - entryY)
-    );
+    ctx.fillStyle = `rgba(239, 68, 68, ${riskOpacity})`; // red-500
+    ctx.fillRect(zoneStartX, drawRiskTop, zoneWidth, drawRiskHeight);
 
     // Draw reward zone (entry to target) - green with transparency
     if (targetY !== null) {
-      ctx.fillStyle = 'rgba(16, 185, 129, 0.15)'; // green-500 with low opacity
-      ctx.fillRect(
-        startX,
-        Math.min(entryY, targetY),
-        endX - startX,
-        Math.abs(targetY - entryY)
-      );
+      const rewardTop = Math.min(entryY, targetY);
+      const rewardHeight = Math.abs(targetY - entryY);
+      let drawRewardTop = rewardTop;
+      let drawRewardHeight = rewardHeight;
+
+      if (isHighlighted) {
+        const verticalExpand = rewardHeight * 0.125;
+        drawRewardTop = rewardTop - verticalExpand;
+        drawRewardHeight = rewardHeight + verticalExpand * 2;
+      }
+
+      ctx.fillStyle = `rgba(16, 185, 129, ${rewardOpacity})`; // green-500
+      ctx.fillRect(zoneStartX, drawRewardTop, zoneWidth, drawRewardHeight);
     }
-
-    // Draw entry marker (triangle at entry point)
-    const isLong = trade.direction === 'long';
-    const markerColor = isLong ? '#10b981' : '#ef4444';
-    const markerSize = 8;
-
-    ctx.fillStyle = markerColor;
-    ctx.beginPath();
-    if (isLong) {
-      // Triangle pointing up for long
-      ctx.moveTo(startX, entryY + markerSize);
-      ctx.lineTo(startX - markerSize, entryY + markerSize * 2);
-      ctx.lineTo(startX + markerSize, entryY + markerSize * 2);
-    } else {
-      // Triangle pointing down for short
-      ctx.moveTo(startX, entryY - markerSize);
-      ctx.lineTo(startX - markerSize, entryY - markerSize * 2);
-      ctx.lineTo(startX + markerSize, entryY - markerSize * 2);
-    }
-    ctx.closePath();
-    ctx.fill();
-
-    // Draw a vertical line at entry from stop to target
-    ctx.strokeStyle = markerColor;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 2]);
-    ctx.beginPath();
-    ctx.moveTo(startX, stopY);
-    ctx.lineTo(startX, targetY !== null ? targetY : entryY);
-    ctx.stroke();
 
     ctx.restore();
   }

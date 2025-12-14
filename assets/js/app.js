@@ -29,6 +29,7 @@ import { SparkChart } from "./hooks/spark_chart";
 import { EquityCurveChart } from "./hooks/equity_curve_chart";
 import { SymbolChart } from "./hooks/symbol_chart";
 import { TradeDetailChart } from "./hooks/trade_detail_chart";
+import { TradesTable } from "./hooks/trades_table";
 
 const csrfToken = document
   .querySelector("meta[name='csrf-token']")
@@ -36,7 +37,7 @@ const csrfToken = document
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: { _csrf_token: csrfToken },
-  hooks: { ...colocatedHooks, TradingChart, SparkChart, EquityCurveChart, SymbolChart, TradeDetailChart },
+  hooks: { ...colocatedHooks, TradingChart, SparkChart, EquityCurveChart, SymbolChart, TradeDetailChart, TradesTable },
   debug: "none",
 });
 

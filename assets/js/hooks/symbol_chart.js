@@ -48,6 +48,122 @@ function formatTimeExact(time) {
 }
 
 /**
+ * Easing function for smooth animation (ease-out cubic)
+ */
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/**
+ * Animate the chart's visible time range
+ * @param {Object} chart - Lightweight Charts instance
+ * @param {Object} targetRange - Target range { from, to }
+ * @param {number} duration - Animation duration in ms
+ * @param {Function} onComplete - Callback when animation completes
+ */
+function animateTimeRange(chart, targetRange, duration = 250, onComplete = null) {
+  const timeScale = chart.timeScale();
+  const startRange = timeScale.getVisibleRange();
+
+  if (!startRange) {
+    timeScale.setVisibleRange(targetRange);
+    if (onComplete) onComplete();
+    return;
+  }
+
+  const startTime = performance.now();
+  const startFrom = startRange.from;
+  const startTo = startRange.to;
+  const deltaFrom = targetRange.from - startFrom;
+  const deltaTo = targetRange.to - startTo;
+
+  function animate(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const easedProgress = easeOutCubic(progress);
+
+    const currentFrom = startFrom + deltaFrom * easedProgress;
+    const currentTo = startTo + deltaTo * easedProgress;
+
+    timeScale.setVisibleRange({ from: currentFrom, to: currentTo });
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    } else if (onComplete) {
+      onComplete();
+    }
+  }
+
+  requestAnimationFrame(animate);
+}
+
+/**
+ * Animate both time range and price range together for smooth zoom effect
+ * @param {Object} chart - Lightweight Charts instance
+ * @param {Object} series - The candle series
+ * @param {Object} targetTimeRange - Target time range { from, to }
+ * @param {Object} startPriceRange - Starting price range { minValue, maxValue }
+ * @param {Object} targetPriceRange - Target price range { minValue, maxValue }
+ * @param {number} duration - Animation duration in ms
+ * @param {Function} onComplete - Callback when animation completes
+ */
+function animateChartZoom(chart, series, targetTimeRange, startPriceRange, targetPriceRange, duration = 250, onComplete = null) {
+  const timeScale = chart.timeScale();
+  const startTimeRange = timeScale.getVisibleRange();
+
+  if (!startTimeRange) {
+    timeScale.setVisibleRange(targetTimeRange);
+    series.applyOptions({
+      autoscaleInfoProvider: () => ({ priceRange: targetPriceRange }),
+    });
+    if (onComplete) onComplete();
+    return;
+  }
+
+  const startTime = performance.now();
+
+  // Time range deltas
+  const startTimeFrom = startTimeRange.from;
+  const startTimeTo = startTimeRange.to;
+  const deltaTimeFrom = targetTimeRange.from - startTimeFrom;
+  const deltaTimeTo = targetTimeRange.to - startTimeTo;
+
+  // Price range deltas
+  const startPriceMin = startPriceRange.minValue;
+  const startPriceMax = startPriceRange.maxValue;
+  const deltaPriceMin = targetPriceRange.minValue - startPriceMin;
+  const deltaPriceMax = targetPriceRange.maxValue - startPriceMax;
+
+  function animate(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const easedProgress = easeOutCubic(progress);
+
+    // Interpolate time range
+    const currentTimeFrom = startTimeFrom + deltaTimeFrom * easedProgress;
+    const currentTimeTo = startTimeTo + deltaTimeTo * easedProgress;
+    timeScale.setVisibleRange({ from: currentTimeFrom, to: currentTimeTo });
+
+    // Interpolate price range
+    const currentPriceMin = startPriceMin + deltaPriceMin * easedProgress;
+    const currentPriceMax = startPriceMax + deltaPriceMax * easedProgress;
+    series.applyOptions({
+      autoscaleInfoProvider: () => ({
+        priceRange: { minValue: currentPriceMin, maxValue: currentPriceMax },
+      }),
+    });
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    } else if (onComplete) {
+      onComplete();
+    }
+  }
+
+  requestAnimationFrame(animate);
+}
+
+/**
  * SymbolChart Hook - Chart with trade markers for historical analysis
  *
  * This hook creates a candlestick chart with trade entry/exit markers.
@@ -151,6 +267,30 @@ export const SymbolChart = {
       this.updateChartData(bars, trades, levels);
     });
 
+    // Store full range for restoring after zoom
+    this._fullRange = null;
+
+    // Listen for trade highlight events via custom DOM events (client-side only, no server round-trip)
+    this._highlightHandler = (e) => {
+      const tradeId = e.detail?.id;
+      if (this.tradeZonePrimitive && this._candleData) {
+        this.tradeZonePrimitive.setHighlightedTrade(tradeId);
+        // Force primitive redraw by re-setting the candle data
+        this.candleSeries.setData(this._candleData);
+      }
+    };
+
+    this._unhighlightHandler = () => {
+      if (this.tradeZonePrimitive && this._candleData) {
+        this.tradeZonePrimitive.setHighlightedTrade(null);
+        // Force primitive redraw by re-setting the candle data
+        this.candleSeries.setData(this._candleData);
+      }
+    };
+
+    window.addEventListener('trade-highlight', this._highlightHandler);
+    window.addEventListener('trade-unhighlight', this._unhighlightHandler);
+
     // Handle resize
     this.resizeObserver = new ResizeObserver(entries => {
       if (entries.length === 0 || !entries[0].target) return;
@@ -185,6 +325,8 @@ export const SymbolChart = {
     if (bars.length === 0) {
       this.candleSeries.setData([]);
       this.volumeSeries.setData([]);
+      this._candleData = [];
+      this._trades = [];
       // Clear markers if they exist
       if (this.seriesMarkers) {
         this.seriesMarkers.setMarkers([]);
@@ -200,6 +342,10 @@ export const SymbolChart = {
       low: parseFloat(bar.low),
       close: parseFloat(bar.close),
     }));
+
+    // Store for later use (price scale fitting)
+    this._candleData = candleData;
+    this._trades = trades || [];
 
     const volumeData = bars.map(bar => ({
       time: timeToLocal(bar.time),
@@ -225,6 +371,149 @@ export const SymbolChart = {
 
     // Fit content to view
     this.chart.timeScale().fitContent();
+
+    // Ensure all trade levels are visible in the price scale
+    this.fitPriceScale(candleData, trades || []);
+  },
+
+  fitPriceScale(candleData, trades) {
+    // Collect all prices that need to be visible
+    const prices = [];
+
+    // Add bar highs and lows
+    for (const bar of candleData) {
+      prices.push(bar.high);
+      prices.push(bar.low);
+    }
+
+    // Add trade levels (stop loss and take profit)
+    for (const trade of trades) {
+      if (trade.entry_price && trade.entry_price !== '-') {
+        prices.push(parseFloat(trade.entry_price));
+      }
+      if (trade.stop_loss && trade.stop_loss !== '-') {
+        prices.push(parseFloat(trade.stop_loss));
+      }
+      if (trade.take_profit && trade.take_profit !== '-') {
+        prices.push(parseFloat(trade.take_profit));
+      }
+      if (trade.exit_price && trade.exit_price !== '-') {
+        prices.push(parseFloat(trade.exit_price));
+      }
+    }
+
+    if (prices.length === 0) return;
+
+    // Calculate min and max with some padding
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const range = maxPrice - minPrice;
+    const padding = range * 0.05; // 5% padding on each side
+
+    // Store the price range for the autoscale provider
+    this._priceRange = {
+      minValue: minPrice - padding,
+      maxValue: maxPrice + padding,
+    };
+
+    // Update the series with custom autoscale provider
+    this.candleSeries.applyOptions({
+      autoscaleInfoProvider: () => ({
+        priceRange: this._priceRange,
+      }),
+    });
+
+    // Force the chart to re-autoscale with the new provider
+    this.candleSeries.priceScale().applyOptions({
+      autoScale: true,
+    });
+  },
+
+  calculateTradePriceRange(trade, fromTime, toTime) {
+    // Collect prices relevant to this specific trade
+    const prices = [];
+
+    // Add trade levels (entry, stop, target)
+    if (trade.entry_price && trade.entry_price !== '-') {
+      prices.push(parseFloat(trade.entry_price));
+    }
+    if (trade.stop_loss && trade.stop_loss !== '-') {
+      prices.push(parseFloat(trade.stop_loss));
+    }
+    if (trade.take_profit && trade.take_profit !== '-') {
+      prices.push(parseFloat(trade.take_profit));
+    }
+    if (trade.exit_price && trade.exit_price !== '-') {
+      prices.push(parseFloat(trade.exit_price));
+    }
+    // Add the key level that triggered the trade
+    if (trade.level_price && trade.level_price !== '-') {
+      prices.push(parseFloat(trade.level_price));
+    }
+
+    // Add bar highs and lows within the visible time range
+    for (const bar of this._candleData) {
+      if (bar.time >= fromTime && bar.time <= toTime) {
+        prices.push(bar.high);
+        prices.push(bar.low);
+      }
+    }
+
+    if (prices.length === 0) {
+      return this.calculateFullPriceRange();
+    }
+
+    // Calculate min and max with padding for centering
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const range = maxPrice - minPrice;
+    const padding = range * 0.25; // 25% padding for better centering
+
+    return {
+      minValue: minPrice - padding,
+      maxValue: maxPrice + padding,
+    };
+  },
+
+  calculateFullPriceRange() {
+    // Calculate price range from all bars and trades
+    const prices = [];
+
+    // Add bar highs and lows
+    for (const bar of this._candleData) {
+      prices.push(bar.high);
+      prices.push(bar.low);
+    }
+
+    // Add trade levels
+    for (const trade of this._trades) {
+      if (trade.entry_price && trade.entry_price !== '-') {
+        prices.push(parseFloat(trade.entry_price));
+      }
+      if (trade.stop_loss && trade.stop_loss !== '-') {
+        prices.push(parseFloat(trade.stop_loss));
+      }
+      if (trade.take_profit && trade.take_profit !== '-') {
+        prices.push(parseFloat(trade.take_profit));
+      }
+      if (trade.exit_price && trade.exit_price !== '-') {
+        prices.push(parseFloat(trade.exit_price));
+      }
+    }
+
+    if (prices.length === 0) {
+      return { minValue: 0, maxValue: 100 };
+    }
+
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const range = maxPrice - minPrice;
+    const padding = range * 0.05;
+
+    return {
+      minValue: minPrice - padding,
+      maxValue: maxPrice + padding,
+    };
   },
 
   clearPriceLines() {
@@ -249,7 +538,10 @@ export const SymbolChart = {
   },
 
   drawTradeLines(trades) {
-    // Update the trade zone primitive with trades (for shaded areas)
+    // Update the trade zone primitive with trades (for shaded areas only)
+    // Price lines for entry/stop/target/exit are not drawn on the main chart
+    // - they clutter the view when there are multiple trades
+    // - detailed trade info is shown in the trade detail modal chart
     if (this.tradeZonePrimitive) {
       // Convert times to local for the primitive
       const tradesWithLocalTime = (trades || []).map(trade => ({
@@ -258,75 +550,6 @@ export const SymbolChart = {
         exit_time: trade.exit_time ? timeToLocal(trade.exit_time) : null,
       }));
       this.tradeZonePrimitive.setTrades(tradesWithLocalTime);
-    }
-
-    if (!trades || trades.length === 0) {
-      return;
-    }
-
-    for (const trade of trades) {
-      const isLong = trade.direction === 'long';
-      const entryColor = isLong ? '#10b981' : '#ef4444'; // green for long, red for short
-
-      // Entry line - solid
-      if (trade.entry_price && trade.entry_price !== '-') {
-        const entryLine = this.candleSeries.createPriceLine({
-          price: parseFloat(trade.entry_price),
-          color: entryColor,
-          lineWidth: 2,
-          lineStyle: 0, // Solid
-          axisLabelVisible: true,
-          title: `${trade.direction.toUpperCase()} Entry`,
-        });
-        this.tradeLines.push(entryLine);
-      }
-
-      // Stop loss line - dashed red
-      if (trade.stop_loss && trade.stop_loss !== '-') {
-        const stopLine = this.candleSeries.createPriceLine({
-          price: parseFloat(trade.stop_loss),
-          color: '#ef4444',
-          lineWidth: 1,
-          lineStyle: 2, // Dashed
-          axisLabelVisible: true,
-          title: 'Stop',
-        });
-        this.tradeLines.push(stopLine);
-      }
-
-      // Take profit line - dashed green
-      if (trade.take_profit && trade.take_profit !== '-') {
-        const targetR = trade.target_r || '2.0';
-        const targetLine = this.candleSeries.createPriceLine({
-          price: parseFloat(trade.take_profit),
-          color: '#10b981',
-          lineWidth: 1,
-          lineStyle: 2, // Dashed
-          axisLabelVisible: true,
-          title: `Target (${targetR}R)`,
-        });
-        this.tradeLines.push(targetLine);
-      }
-
-      // Exit line - dotted, color based on result
-      if (trade.exit_price && trade.exit_price !== '-') {
-        let exitColor = '#f59e0b'; // amber for time exit
-        if (trade.status === 'target_hit') {
-          exitColor = '#10b981'; // green
-        } else if (trade.status === 'stopped_out') {
-          exitColor = '#ef4444'; // red
-        }
-
-        const exitLine = this.candleSeries.createPriceLine({
-          price: parseFloat(trade.exit_price),
-          color: exitColor,
-          lineWidth: 2,
-          lineStyle: 1, // Dotted
-          axisLabelVisible: true,
-          title: `Exit (${trade.r_multiple || '0'}R)`,
-        });
-        this.tradeLines.push(exitLine);
-      }
     }
   },
 
@@ -355,6 +578,12 @@ export const SymbolChart = {
   destroyed() {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
+    }
+    if (this._highlightHandler) {
+      window.removeEventListener('trade-highlight', this._highlightHandler);
+    }
+    if (this._unhighlightHandler) {
+      window.removeEventListener('trade-unhighlight', this._unhighlightHandler);
     }
     if (this.chart) {
       this.chart.remove();
