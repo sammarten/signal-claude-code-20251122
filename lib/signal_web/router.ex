@@ -18,6 +18,7 @@ defmodule SignalWeb.Router do
     pipe_through :browser
 
     live "/", MarketLive, :index
+    live "/preview", PreviewLive, :index
     live "/signals", SignalsLive, :index
     live "/backtest", BacktestLive, :index
     live "/optimization", OptimizationLive, :index
