@@ -44,6 +44,35 @@ defmodule Signal.Preview.DivergenceAnalyzer do
     end
   end
 
+  @doc """
+  Analyzes index divergence and returns historical data for charting.
+
+  ## Parameters
+
+    * `date` - Date to analyze
+
+  ## Returns
+
+    * `{:ok, {%IndexDivergence{}, history}}` - Divergence analysis with historical series
+    * `{:error, atom()}` - Error during analysis
+
+  Where `history` is a map with cumulative return series for each index:
+      %{
+        spy: [%{time: unix_timestamp, value: cumulative_return_pct}, ...],
+        qqq: [...],
+        dia: [...]
+      }
+  """
+  @spec analyze_with_history(Date.t()) ::
+          {:ok, {IndexDivergence.t(), map()}} | {:error, atom()}
+  def analyze_with_history(date) do
+    with {:ok, data} <- fetch_index_data(date) do
+      divergence = calculate_divergence(data, date)
+      history = build_cumulative_return_history(data)
+      {:ok, {divergence, history}}
+    end
+  end
+
   # Private Functions
 
   defp fetch_index_data(date) do
@@ -211,4 +240,36 @@ defmodule Signal.Preview.DivergenceAnalyzer do
         "Indices relatively aligned"
     end
   end
+
+  defp build_cumulative_return_history(data) do
+    %{
+      spy: build_return_series(data[:SPY]),
+      qqq: build_return_series(data[:QQQ]),
+      dia: build_return_series(data[:DIA])
+    }
+  end
+
+  defp build_return_series(bars) when length(bars) > 0 do
+    base_price = List.first(bars).close
+
+    Enum.map(bars, fn bar ->
+      # Calculate cumulative return from start of period
+      return_pct =
+        Decimal.mult(
+          Decimal.div(Decimal.sub(bar.close, base_price), base_price),
+          Decimal.new("100")
+        )
+
+      # Convert date to Unix timestamp for Lightweight Charts
+      datetime = DateTime.new!(bar.date, ~T[16:00:00], "Etc/UTC")
+      unix_time = DateTime.to_unix(datetime)
+
+      %{
+        time: unix_time,
+        value: Decimal.to_float(return_pct)
+      }
+    end)
+  end
+
+  defp build_return_series(_), do: []
 end

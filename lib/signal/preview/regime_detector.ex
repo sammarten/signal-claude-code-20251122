@@ -175,6 +175,12 @@ defmodule Signal.Preview.RegimeDetector do
     # Calculate range duration (days in current range)
     range_duration = calculate_range_duration(daily_bars, range_high, range_low)
 
+    # Format swing points for the chart
+    swing_points = format_swing_points(swings)
+
+    # Format chart bars (last 20 days) for JS charting
+    chart_bars = format_chart_bars(Enum.take(daily_bars, -20))
+
     %MarketRegime{
       symbol: to_string(symbol),
       date: date,
@@ -186,7 +192,10 @@ defmodule Signal.Preview.RegimeDetector do
       distance_from_ath_percent: distance_from_ath,
       trend_direction: trend_direction,
       higher_lows_count: higher_lows_count,
-      lower_highs_count: lower_highs_count
+      lower_highs_count: lower_highs_count,
+      atr: atr,
+      swing_points: swing_points,
+      chart_bars: chart_bars
     }
   end
 
@@ -291,6 +300,32 @@ defmodule Signal.Preview.RegimeDetector do
         low: bar.low,
         close: bar.close,
         volume: bar.volume
+      }
+    end)
+  end
+
+  defp format_swing_points(swings) do
+    Enum.map(swings, fn swing ->
+      %{
+        type: swing.type,
+        bar_time: swing.bar_time,
+        price: swing.price
+      }
+    end)
+  end
+
+  defp format_chart_bars(daily_bars) do
+    Enum.map(daily_bars, fn bar ->
+      # Convert date to Unix timestamp (seconds) for Lightweight Charts
+      datetime = DateTime.new!(bar.date, ~T[16:00:00], "Etc/UTC")
+      unix_time = DateTime.to_unix(datetime)
+
+      %{
+        time: unix_time,
+        open: Decimal.to_float(bar.open),
+        high: Decimal.to_float(bar.high),
+        low: Decimal.to_float(bar.low),
+        close: Decimal.to_float(bar.close)
       }
     end)
   end

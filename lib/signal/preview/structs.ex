@@ -12,6 +12,20 @@ defmodule Signal.Preview.MarketRegime do
   @type regime :: :trending_up | :trending_down | :ranging | :breakout_pending
   @type trend_direction :: :up | :down | :neutral
 
+  @type swing_point :: %{
+          type: :high | :low,
+          bar_time: DateTime.t(),
+          price: Decimal.t()
+        }
+
+  @type chart_bar :: %{
+          time: integer(),
+          open: float(),
+          high: float(),
+          low: float(),
+          close: float()
+        }
+
   @type t :: %__MODULE__{
           symbol: String.t(),
           date: Date.t(),
@@ -23,7 +37,10 @@ defmodule Signal.Preview.MarketRegime do
           distance_from_ath_percent: Decimal.t() | nil,
           trend_direction: trend_direction() | nil,
           higher_lows_count: non_neg_integer(),
-          lower_highs_count: non_neg_integer()
+          lower_highs_count: non_neg_integer(),
+          atr: Decimal.t() | nil,
+          swing_points: [swing_point()],
+          chart_bars: [chart_bar()]
         }
 
   defstruct [
@@ -36,8 +53,11 @@ defmodule Signal.Preview.MarketRegime do
     :range_duration_days,
     :distance_from_ath_percent,
     :trend_direction,
+    :atr,
     higher_lows_count: 0,
-    lower_highs_count: 0
+    lower_highs_count: 0,
+    swing_points: [],
+    chart_bars: []
   ]
 end
 
@@ -230,6 +250,17 @@ defmodule Signal.Preview.DailyPreview do
   @type position_size :: :full | :half | :quarter
   @type expected_volatility :: :high | :normal | :low
 
+  @type divergence_history_point :: %{
+          time: integer(),
+          value: float()
+        }
+
+  @type divergence_history :: %{
+          spy: [divergence_history_point()],
+          qqq: [divergence_history_point()],
+          dia: [divergence_history_point()]
+        }
+
   @type t :: %__MODULE__{
           date: Date.t(),
           generated_at: DateTime.t(),
@@ -246,6 +277,8 @@ defmodule Signal.Preview.DailyPreview do
           avoid: [Signal.Preview.WatchlistItem.t()],
           relative_strength_leaders: [String.t()],
           relative_strength_laggards: [String.t()],
+          full_rs_rankings: [Signal.Preview.RelativeStrength.t()],
+          divergence_history: divergence_history() | nil,
           stance: stance(),
           position_size: position_size(),
           focus: String.t() | nil,
@@ -260,6 +293,7 @@ defmodule Signal.Preview.DailyPreview do
     :spy_regime,
     :qqq_regime,
     :focus,
+    :divergence_history,
     key_events: [],
     expected_volatility: :normal,
     spy_scenarios: [],
@@ -269,6 +303,7 @@ defmodule Signal.Preview.DailyPreview do
     avoid: [],
     relative_strength_leaders: [],
     relative_strength_laggards: [],
+    full_rs_rankings: [],
     stance: :normal,
     position_size: :full,
     risk_notes: []

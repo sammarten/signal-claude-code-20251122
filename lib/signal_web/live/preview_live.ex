@@ -28,6 +28,10 @@ defmodule SignalWeb.PreviewLive do
       |> assign(error: nil)
       |> assign(preview: nil)
       |> assign(today: Date.utc_today())
+      # Expansion states for progressive disclosure
+      |> assign(regime_expanded: false)
+      |> assign(divergence_expanded: false)
+      |> assign(rs_expanded: false)
 
     {:ok, socket}
   end
@@ -91,6 +95,18 @@ defmodule SignalWeb.PreviewLive do
     end
   end
 
+  def handle_event("toggle_regime_details", _params, socket) do
+    {:noreply, assign(socket, regime_expanded: !socket.assigns.regime_expanded)}
+  end
+
+  def handle_event("toggle_divergence_chart", _params, socket) do
+    {:noreply, assign(socket, divergence_expanded: !socket.assigns.divergence_expanded)}
+  end
+
+  def handle_event("toggle_rs_rankings", _params, socket) do
+    {:noreply, assign(socket, rs_expanded: !socket.assigns.rs_expanded)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -112,7 +128,12 @@ defmodule SignalWeb.PreviewLive do
           <%= if @error do %>
             <.error_state error={@error} />
           <% else %>
-            <.preview_content preview={@preview} />
+            <.preview_content
+              preview={@preview}
+              regime_expanded={@regime_expanded}
+              divergence_expanded={@divergence_expanded}
+              rs_expanded={@rs_expanded}
+            />
           <% end %>
         <% end %>
       </div>
@@ -134,8 +155,8 @@ defmodule SignalWeb.PreviewLive do
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-
-        <!-- Date Picker -->
+        
+    <!-- Date Picker -->
         <div class="relative">
           <input
             type="date"
@@ -146,8 +167,8 @@ defmodule SignalWeb.PreviewLive do
             class="bg-zinc-800 border border-zinc-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-amber-500 focus:border-transparent cursor-pointer"
           />
         </div>
-
-        <!-- Next Day -->
+        
+    <!-- Next Day -->
         <button
           phx-click="next_day"
           disabled={@date >= @today}
@@ -175,8 +196,8 @@ defmodule SignalWeb.PreviewLive do
         >
           Today
         </button>
-
-        <!-- Date Display -->
+        
+    <!-- Date Display -->
         <div class="text-zinc-400 text-sm hidden sm:block">
           {format_relative_date(@date, @today)}
         </div>
@@ -215,7 +236,9 @@ defmodule SignalWeb.PreviewLive do
     """
   end
 
-  defp error_message(:insufficient_data), do: "Not enough historical data available. Please ensure market data is loaded."
+  defp error_message(:insufficient_data),
+    do: "Not enough historical data available. Please ensure market data is loaded."
+
   defp error_message(error) when is_atom(error), do: "Error: #{error}"
   defp error_message(error), do: "Error: #{inspect(error)}"
 
@@ -234,22 +257,32 @@ defmodule SignalWeb.PreviewLive do
           class="flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
           </svg>
           Refresh
         </button>
       </div>
-
-      <!-- Market Context -->
+      
+    <!-- Market Context with expandable regime details -->
       <PreviewComponents.market_context
         context={@preview.market_context}
         volatility={@preview.expected_volatility}
         regime={@preview.spy_regime}
+        expanded={@regime_expanded}
       />
-
-      <!-- Two column layout for divergence and game plan -->
+      
+    <!-- Two column layout for divergence and game plan -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PreviewComponents.index_divergence divergence={@preview.index_divergence} />
+        <PreviewComponents.index_divergence
+          divergence={@preview.index_divergence}
+          history={@preview.divergence_history}
+          expanded={@divergence_expanded}
+        />
         <PreviewComponents.game_plan
           stance={@preview.stance}
           position_size={@preview.position_size}
@@ -257,8 +290,8 @@ defmodule SignalWeb.PreviewLive do
           risk_notes={@preview.risk_notes}
         />
       </div>
-
-      <!-- SPY and QQQ sections -->
+      
+    <!-- SPY and QQQ sections -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PreviewComponents.index_section
           symbol="SPY"
@@ -271,18 +304,20 @@ defmodule SignalWeb.PreviewLive do
           scenarios={@preview.qqq_scenarios}
         />
       </div>
-
-      <!-- Watchlist -->
+      
+    <!-- Watchlist -->
       <PreviewComponents.watchlist
         high_conviction={@preview.high_conviction}
         monitoring={@preview.monitoring}
         avoid={@preview.avoid}
       />
-
-      <!-- Sector notes -->
+      
+    <!-- Sector notes with expandable full RS rankings -->
       <PreviewComponents.sector_notes
         leaders={@preview.relative_strength_leaders}
         laggards={@preview.relative_strength_laggards}
+        full_rankings={@preview.full_rs_rankings}
+        expanded={@rs_expanded}
       />
     </div>
     """

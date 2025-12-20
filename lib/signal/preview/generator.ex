@@ -77,7 +77,7 @@ defmodule Signal.Preview.Generator do
     symbols = Keyword.get(opts, :symbols, get_configured_symbols())
     benchmark = Keyword.get(opts, :benchmark, :SPY)
 
-    with {:ok, divergence} <- analyze_divergence(date),
+    with {:ok, {divergence, divergence_history}} <- analyze_divergence_with_history(date),
          {:ok, spy_regime} <- detect_regime(:SPY, date),
          {:ok, qqq_regime} <- detect_regime(:QQQ, date),
          {:ok, spy_scenarios} <- generate_scenarios(:SPY, spy_regime, date),
@@ -88,6 +88,7 @@ defmodule Signal.Preview.Generator do
         build_preview(
           date,
           divergence,
+          divergence_history,
           spy_regime,
           qqq_regime,
           spy_scenarios,
@@ -109,10 +110,10 @@ defmodule Signal.Preview.Generator do
     symbols = Keyword.get(opts, :symbols, get_configured_symbols())
     benchmark = Keyword.get(opts, :benchmark, :SPY)
 
-    divergence =
-      case analyze_divergence(date) do
-        {:ok, d} -> d
-        _ -> nil
+    {divergence, divergence_history} =
+      case analyze_divergence_with_history(date) do
+        {:ok, {d, h}} -> {d, h}
+        _ -> {nil, nil}
       end
 
     spy_regime =
@@ -155,6 +156,7 @@ defmodule Signal.Preview.Generator do
       build_preview(
         date,
         divergence,
+        divergence_history,
         spy_regime,
         qqq_regime,
         spy_scenarios,
@@ -177,8 +179,8 @@ defmodule Signal.Preview.Generator do
     end
   end
 
-  defp analyze_divergence(date) do
-    DivergenceAnalyzer.analyze(date)
+  defp analyze_divergence_with_history(date) do
+    DivergenceAnalyzer.analyze_with_history(date)
   end
 
   defp detect_regime(symbol, date) do
@@ -211,6 +213,7 @@ defmodule Signal.Preview.Generator do
   defp build_preview(
          date,
          divergence,
+         divergence_history,
          spy_regime,
          qqq_regime,
          spy_scenarios,
@@ -225,6 +228,9 @@ defmodule Signal.Preview.Generator do
     leaders = RelativeStrengthCalculator.get_leaders(rs_results, 5)
     laggards = RelativeStrengthCalculator.get_laggards(rs_results, 5)
 
+    # Sort RS results by 5-day RS for full rankings display
+    sorted_rs_results = Enum.sort_by(rs_results, &Decimal.to_float(&1.rs_5d), :desc)
+
     %DailyPreview{
       date: date,
       generated_at: DateTime.utc_now(),
@@ -232,6 +238,7 @@ defmodule Signal.Preview.Generator do
       key_events: [],
       expected_volatility: expected_volatility,
       index_divergence: divergence,
+      divergence_history: divergence_history,
       spy_regime: spy_regime,
       qqq_regime: qqq_regime,
       spy_scenarios: spy_scenarios,
@@ -241,6 +248,7 @@ defmodule Signal.Preview.Generator do
       avoid: watchlist.avoid,
       relative_strength_leaders: Enum.map(leaders, & &1.symbol),
       relative_strength_laggards: Enum.map(laggards, & &1.symbol),
+      full_rs_rankings: sorted_rs_results,
       stance: stance,
       position_size: position_size,
       focus: focus,
