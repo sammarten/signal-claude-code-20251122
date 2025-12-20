@@ -5,15 +5,22 @@ defmodule Signal.Technicals.Levels do
   ## Key Levels Tracked
 
   - **Previous Day High/Low (PDH/PDL)** - Calculated from previous trading day
+  - **Previous Day Open/Close** - For gap analysis
   - **Premarket High/Low (PMH/PML)** - Calculated from 4:00 AM - 9:30 AM ET
   - **Opening Range High/Low - 5 minute (OR5H/OR5L)** - First 5 mins (9:30-9:35 AM)
   - **Opening Range High/Low - 15 minute (OR15H/OR15L)** - First 15 mins (9:30-9:45 AM)
+  - **Weekly High/Low/Close** - Last 5 trading days
+  - **Equilibrium** - Midpoint of weekly range
+  - **All-Time High (ATH)** - Highest price in available history
   - **Psychological levels** - Whole, half, and quarter numbers
 
   ## Usage
 
       # Calculate all daily levels for a symbol
       {:ok, levels} = Levels.calculate_daily_levels(:AAPL, ~D[2024-11-23])
+
+      # Calculate extended levels including weekly and ATH
+      {:ok, levels} = Levels.calculate_extended_levels(:AAPL, ~D[2024-11-23])
 
       # Get current levels for trading
       {:ok, levels} = Levels.get_current_levels(:AAPL)
@@ -73,6 +80,7 @@ defmodule Signal.Technicals.Levels do
          {:ok, prev_bars} <- get_previous_day_bars(symbol, date),
          {:ok, pm_bars} <- get_premarket_bars(symbol, date) do
       {pdh, pdl} = calculate_high_low(prev_bars)
+      {pdo, pdc} = calculate_open_close(prev_bars)
       {pmh, pml} = calculate_high_low(pm_bars)
 
       levels = %KeyLevels{
@@ -80,6 +88,8 @@ defmodule Signal.Technicals.Levels do
         date: date,
         previous_day_high: pdh,
         previous_day_low: pdl,
+        previous_day_open: pdo,
+        previous_day_close: pdc,
         premarket_high: pmh,
         premarket_low: pml
         # OR fields remain nil until 9:35/9:45
@@ -91,6 +101,117 @@ defmodule Signal.Technicals.Levels do
       else
         {:error, _} -> {:error, :database_error}
       end
+    end
+  end
+
+  @doc """
+  Calculates extended levels including weekly range and all-time high.
+
+  Builds on daily levels by adding:
+  - Last week high/low/close (5 trading days)
+  - Equilibrium (midpoint of weekly range)
+  - All-time high from available history
+
+  ## Parameters
+
+    * `symbol` - Symbol atom (e.g., :AAPL)
+    * `date` - Date to calculate levels for
+
+  ## Returns
+
+    * `{:ok, %KeyLevels{}}` - Calculated levels including extended fields
+    * `{:error, atom()}` - Error during calculation
+  """
+  @spec calculate_extended_levels(atom(), Date.t()) ::
+          {:ok, KeyLevels.t()} | {:error, atom()}
+  def calculate_extended_levels(symbol, date) do
+    with {:ok, levels} <- calculate_daily_levels(symbol, date),
+         {:ok, weekly} <- calculate_weekly_levels(symbol, date),
+         {:ok, ath} <- calculate_all_time_high(symbol) do
+      equilibrium = calculate_equilibrium(weekly.high, weekly.low)
+
+      updated_levels = %{
+        levels
+        | last_week_high: weekly.high,
+          last_week_low: weekly.low,
+          last_week_close: weekly.close,
+          equilibrium: equilibrium,
+          all_time_high: ath
+      }
+
+      with {:ok, stored} <- store_levels(updated_levels),
+           :ok <- broadcast_levels_update(symbol, stored) do
+        {:ok, stored}
+      else
+        {:error, _} -> {:error, :database_error}
+      end
+    end
+  end
+
+  @doc """
+  Calculates weekly levels (last 5 trading days high/low/close).
+
+  ## Parameters
+
+    * `symbol` - Symbol atom
+    * `date` - Reference date (calculates from previous 5 trading days)
+
+  ## Returns
+
+    * `{:ok, %{high: Decimal, low: Decimal, close: Decimal}}` - Weekly metrics
+    * `{:error, :insufficient_data}` - Not enough historical data
+  """
+  @spec calculate_weekly_levels(atom(), Date.t()) ::
+          {:ok, %{high: Decimal.t(), low: Decimal.t(), close: Decimal.t()}}
+          | {:error, atom()}
+  def calculate_weekly_levels(symbol, date) do
+    # Get bars for last 5 trading days (excluding today)
+    start_date = get_trading_day_n_days_ago(date, 5)
+
+    query =
+      from b in Bar,
+        where: b.symbol == ^to_string(symbol),
+        where:
+          fragment("?::date >= ? AND ?::date < ?", b.bar_time, ^start_date, b.bar_time, ^date),
+        order_by: [asc: b.bar_time]
+
+    bars = Repo.all(query)
+
+    if length(bars) < 10 do
+      {:error, :insufficient_data}
+    else
+      high = Enum.max_by(bars, & &1.high).high
+      low = Enum.min_by(bars, & &1.low).low
+      close = List.last(bars).close
+
+      {:ok, %{high: high, low: low, close: close}}
+    end
+  end
+
+  @doc """
+  Calculates all-time high from available historical data.
+
+  Uses up to 252 trading days (1 year) of data for efficiency.
+
+  ## Parameters
+
+    * `symbol` - Symbol atom
+
+  ## Returns
+
+    * `{:ok, Decimal.t()}` - All-time high price
+    * `{:error, :no_data}` - No historical data found
+  """
+  @spec calculate_all_time_high(atom()) :: {:ok, Decimal.t()} | {:error, atom()}
+  def calculate_all_time_high(symbol) do
+    query =
+      from b in Bar,
+        where: b.symbol == ^to_string(symbol),
+        select: max(b.high)
+
+    case Repo.one(query) do
+      nil -> {:error, :no_data}
+      high -> {:ok, high}
     end
   end
 
@@ -416,6 +537,26 @@ defmodule Signal.Technicals.Levels do
   end
 
   defp calculate_high_low([]), do: {nil, nil}
+
+  defp calculate_open_close(bars) when is_list(bars) and length(bars) > 0 do
+    open = List.first(bars).open
+    close = List.last(bars).close
+    {open, close}
+  end
+
+  defp calculate_open_close([]), do: {nil, nil}
+
+  defp calculate_equilibrium(high, low) when not is_nil(high) and not is_nil(low) do
+    Decimal.div(Decimal.add(high, low), 2)
+  end
+
+  defp calculate_equilibrium(_, _), do: nil
+
+  defp get_trading_day_n_days_ago(date, n) do
+    # Account for weekends: if we need 5 trading days, we might need up to 7 calendar days
+    calendar_days = n + div(n, 5) * 2 + 2
+    Date.add(date, -calendar_days)
+  end
 
   defp store_levels(%KeyLevels{} = levels) do
     Repo.insert(

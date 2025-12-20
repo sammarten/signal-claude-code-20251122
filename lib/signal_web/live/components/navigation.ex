@@ -13,6 +13,7 @@ defmodule SignalWeb.Live.Components.Navigation do
 
   @nav_items [
     %{path: "/", label: "Market", icon: "hero-chart-bar"},
+    %{path: "/preview", label: "Preview", icon: "hero-sun"},
     %{path: "/signals", label: "Signals", icon: "hero-bolt"},
     %{path: "/backtest", label: "Backtest", icon: "hero-play"},
     %{path: "/optimization", label: "Optimize", icon: "hero-adjustments-horizontal"},
@@ -148,6 +149,12 @@ defmodule SignalWeb.Live.Components.Navigation do
   defp page_icon(%{current_path: "/data/coverage"} = assigns) do
     ~H"""
     <.icon name="hero-server-stack" class="w-8 h-8 text-white" />
+    """
+  end
+
+  defp page_icon(%{current_path: "/preview"} = assigns) do
+    ~H"""
+    <.icon name="hero-sun" class="w-8 h-8 text-white" />
     """
   end
 

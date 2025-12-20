@@ -681,7 +681,12 @@ defmodule SignalWeb.SymbolLive do
               title="Previous trading day"
             >
               <svg class="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
             </button>
             <div class="flex items-center gap-3 cursor-pointer px-2">
@@ -721,7 +726,12 @@ defmodule SignalWeb.SymbolLive do
               title="Next trading day"
             >
               <svg class="w-5 h-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                />
               </svg>
             </button>
           </div>
@@ -874,7 +884,7 @@ defmodule SignalWeb.SymbolLive do
             </div>
           <% end %>
         </div>
-
+        
     <!-- Run Simulation Button (shown when simulation hasn't been run) -->
         <%= if !@simulation_ran do %>
           <div class="flex justify-center">
@@ -901,142 +911,144 @@ defmodule SignalWeb.SymbolLive do
                   d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
               </svg>
-              <span class="font-medium text-white animate-shimmer">Run break & retest simulation</span>
+              <span class="font-medium text-white animate-shimmer">
+                Run break & retest simulation
+              </span>
             </button>
           </div>
         <% end %>
-
+        
     <!-- Trades - Full Width (only shown after simulation has run) -->
         <%= if @simulation_ran do %>
-        <% all_trades = @trades ++ @simulated_trades %>
-        <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden">
-          <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
-            <div class="flex items-center justify-between">
-              <div class="flex items-baseline gap-3">
-                <h3 class="text-lg font-semibold text-white">Trades</h3>
+          <% all_trades = @trades ++ @simulated_trades %>
+          <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden">
+            <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
+              <div class="flex items-center justify-between">
+                <div class="flex items-baseline gap-3">
+                  <h3 class="text-lg font-semibold text-white">Trades</h3>
+                  <%= if length(@simulated_trades) > 0 do %>
+                    <span class="px-2 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-400 rounded">
+                      {length(@simulated_trades)} simulated
+                    </span>
+                  <% end %>
+                </div>
                 <%= if length(@simulated_trades) > 0 do %>
-                  <span class="px-2 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-400 rounded">
-                    {length(@simulated_trades)} simulated
-                  </span>
+                  <button
+                    phx-click="clear_simulation"
+                    class="flex items-center gap-1 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm rounded-lg transition-colors"
+                  >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                    Clear
+                  </button>
                 <% end %>
               </div>
-              <%= if length(@simulated_trades) > 0 do %>
-                <button
-                  phx-click="clear_simulation"
-                  class="flex items-center gap-1 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm rounded-lg transition-colors"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                  Clear
-                </button>
-              <% end %>
             </div>
-          </div>
 
-          <%= if Enum.empty?(all_trades) do %>
-            <div class="p-8 text-center">
-              <p class="text-zinc-500">No break & retest setups found for this date.</p>
-            </div>
-          <% else %>
-            <div class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-zinc-800">
-                <thead class="bg-zinc-900/50">
-                  <tr>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase">
-                      Direction
-                    </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase">
-                      Entry Time
-                    </th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
-                      Entry
-                    </th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
-                      Stop (1R)
-                    </th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
-                      Target (2R)
-                    </th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
-                      Exit
-                    </th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
-                      R
-                    </th>
-                    <th class="px-4 py-3 text-center text-xs font-medium text-zinc-400 uppercase">
-                      Result
-                    </th>
-                  </tr>
-                </thead>
-                <tbody id="trades-table" phx-hook="TradesTable" class="divide-y divide-zinc-800">
-                  <tr
-                    :for={trade <- all_trades}
-                    data-trade-id={trade.id}
-                    phx-click="select_trade"
-                    phx-value-id={trade.id}
-                    class="hover:bg-zinc-800/50 cursor-pointer transition-colors"
-                  >
-                    <td class="px-4 py-3 whitespace-nowrap">
-                      <span class={[
-                        "text-xs font-semibold px-2 py-1 rounded",
-                        trade.direction == :long && "bg-green-500/20 text-green-400",
-                        trade.direction == :short && "bg-red-500/20 text-red-400"
+            <%= if Enum.empty?(all_trades) do %>
+              <div class="p-8 text-center">
+                <p class="text-zinc-500">No break & retest setups found for this date.</p>
+              </div>
+            <% else %>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-zinc-800">
+                  <thead class="bg-zinc-900/50">
+                    <tr>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase">
+                        Direction
+                      </th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase">
+                        Entry Time
+                      </th>
+                      <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
+                        Entry
+                      </th>
+                      <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
+                        Stop (1R)
+                      </th>
+                      <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
+                        Target (2R)
+                      </th>
+                      <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
+                        Exit
+                      </th>
+                      <th class="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase">
+                        R
+                      </th>
+                      <th class="px-4 py-3 text-center text-xs font-medium text-zinc-400 uppercase">
+                        Result
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody id="trades-table" phx-hook="TradesTable" class="divide-y divide-zinc-800">
+                    <tr
+                      :for={trade <- all_trades}
+                      data-trade-id={trade.id}
+                      phx-click="select_trade"
+                      phx-value-id={trade.id}
+                      class="hover:bg-zinc-800/50 cursor-pointer transition-colors"
+                    >
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <span class={[
+                          "text-xs font-semibold px-2 py-1 rounded",
+                          trade.direction == :long && "bg-green-500/20 text-green-400",
+                          trade.direction == :short && "bg-red-500/20 text-red-400"
+                        ]}>
+                          {trade.direction |> to_string() |> String.upcase()}
+                        </span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm text-zinc-300">
+                        <time data-utc={DateTime.to_unix(trade.entry_time) * 1000}>
+                          {format_time_et(trade.entry_time)}
+                        </time>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-white text-right">
+                        {format_price(trade.entry_price)}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-red-400 text-right">
+                        {format_price(trade.stop_loss)}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-green-400 text-right">
+                        <%= if trade.take_profit do %>
+                          {format_price(trade.take_profit)}
+                        <% else %>
+                          -
+                        <% end %>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-zinc-300 text-right">
+                        <%= if trade.exit_price do %>
+                          {format_price(trade.exit_price)}
+                        <% else %>
+                          -
+                        <% end %>
+                      </td>
+                      <td class={[
+                        "px-4 py-3 whitespace-nowrap text-sm font-mono font-bold text-right",
+                        pnl_color(trade.r_multiple)
                       ]}>
-                        {trade.direction |> to_string() |> String.upcase()}
-                      </span>
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm text-zinc-300">
-                      <time data-utc={DateTime.to_unix(trade.entry_time) * 1000}>
-                        {format_time_et(trade.entry_time)}
-                      </time>
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-white text-right">
-                      {format_price(trade.entry_price)}
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-red-400 text-right">
-                      {format_price(trade.stop_loss)}
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-green-400 text-right">
-                      <%= if trade.take_profit do %>
-                        {format_price(trade.take_profit)}
-                      <% else %>
-                        -
-                      <% end %>
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-sm font-mono text-zinc-300 text-right">
-                      <%= if trade.exit_price do %>
-                        {format_price(trade.exit_price)}
-                      <% else %>
-                        -
-                      <% end %>
-                    </td>
-                    <td class={[
-                      "px-4 py-3 whitespace-nowrap text-sm font-mono font-bold text-right",
-                      pnl_color(trade.r_multiple)
-                    ]}>
-                      {format_r(trade.r_multiple)}
-                    </td>
-                    <td class="px-4 py-3 whitespace-nowrap text-center">
-                      <% {status_text, status_class} = status_badge(trade.status) %>
-                      <span class={["px-2 py-1 text-xs font-medium rounded border", status_class]}>
-                        {status_text}
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-        </div>
+                        {format_r(trade.r_multiple)}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-center">
+                        <% {status_text, status_class} = status_badge(trade.status) %>
+                        <span class={["px-2 py-1 text-xs font-medium rounded border", status_class]}>
+                          {status_text}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            <% end %>
+          </div>
         <% end %>
       </div>
-
+      
     <!-- Trade Detail Modal -->
       <%= if @selected_trade do %>
         <div
