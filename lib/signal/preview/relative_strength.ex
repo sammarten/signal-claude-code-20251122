@@ -55,6 +55,9 @@ defmodule Signal.Preview.RelativeStrengthCalculator do
   @doc """
   Calculates relative strength for multiple symbols.
 
+  Uses a single batch database query to fetch bars for all symbols at once,
+  significantly improving performance compared to N+1 individual queries.
+
   ## Parameters
 
     * `symbols` - List of symbols to analyze
@@ -69,16 +72,24 @@ defmodule Signal.Preview.RelativeStrengthCalculator do
   @spec calculate_all([atom()], atom(), Date.t()) ::
           {:ok, [RelativeStrength.t()]} | {:error, atom()}
   def calculate_all(symbols, benchmark, date) do
-    with {:ok, bench_bars} <- fetch_daily_bars(benchmark, date, 25) do
+    # Include benchmark in the batch query
+    all_symbols = [benchmark | symbols] |> Enum.uniq()
+
+    {:ok, bars_by_symbol} = fetch_daily_bars_batch(all_symbols, date, 25)
+    bench_bars = Map.get(bars_by_symbol, to_string(benchmark), [])
+
+    if length(bench_bars) < 5 do
+      {:error, :insufficient_benchmark_data}
+    else
       results =
         symbols
         |> Enum.map(fn symbol ->
-          case fetch_daily_bars(symbol, date, 25) do
-            {:ok, symbol_bars} ->
-              calculate_rs(symbol, benchmark, date, symbol_bars, bench_bars)
+          symbol_bars = Map.get(bars_by_symbol, to_string(symbol), [])
 
-            {:error, _} ->
-              nil
+          if length(symbol_bars) >= 5 do
+            calculate_rs(symbol, benchmark, date, symbol_bars, bench_bars)
+          else
+            nil
           end
         end)
         |> Enum.reject(&is_nil/1)
@@ -138,6 +149,32 @@ defmodule Signal.Preview.RelativeStrengthCalculator do
   end
 
   # Private Functions
+
+  # Batch fetch daily bars for multiple symbols in a single query
+  defp fetch_daily_bars_batch(symbols, date, days) do
+    start_date = Date.add(date, -days - 5)
+    symbol_strings = Enum.map(symbols, &to_string/1)
+
+    query =
+      from b in Bar,
+        where: b.symbol in ^symbol_strings,
+        where:
+          fragment("?::date >= ? AND ?::date <= ?", b.bar_time, ^start_date, b.bar_time, ^date),
+        order_by: [asc: b.bar_time]
+
+    bars = Repo.all(query)
+
+    # Group by symbol, then aggregate each to daily bars
+    bars_by_symbol =
+      bars
+      |> Enum.group_by(& &1.symbol)
+      |> Enum.map(fn {symbol, symbol_bars} ->
+        {symbol, aggregate_to_daily(symbol_bars)}
+      end)
+      |> Map.new()
+
+    {:ok, bars_by_symbol}
+  end
 
   defp fetch_daily_bars(symbol, date, days) do
     start_date = Date.add(date, -days - 5)

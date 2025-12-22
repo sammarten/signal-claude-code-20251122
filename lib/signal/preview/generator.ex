@@ -168,6 +168,104 @@ defmodule Signal.Preview.Generator do
     {:ok, preview}
   end
 
+  @doc """
+  Generates a preview with parallel data fetching for faster load times.
+
+  This function parallelizes independent analysis operations:
+  - Index divergence analysis
+  - SPY/QQQ regime detection
+  - Relative strength calculations
+
+  Dependent operations (scenarios, watchlist) run after their dependencies complete.
+  """
+  @spec generate_parallel(keyword()) :: {:ok, DailyPreview.t()}
+  def generate_parallel(opts \\ []) do
+    date = Keyword.get(opts, :date, Date.utc_today())
+    symbols = Keyword.get(opts, :symbols, get_configured_symbols())
+    benchmark = Keyword.get(opts, :benchmark, :SPY)
+
+    # Phase 1: Run all independent operations in parallel
+    tasks = %{
+      divergence: Task.async(fn -> safe_analyze_divergence(date) end),
+      spy_regime: Task.async(fn -> safe_detect_regime(:SPY, date) end),
+      qqq_regime: Task.async(fn -> safe_detect_regime(:QQQ, date) end),
+      rs_results: Task.async(fn -> safe_get_rs_rankings(symbols, benchmark, date) end)
+    }
+
+    # Await all parallel tasks (with 30 second timeout)
+    results = %{
+      divergence: Task.await(tasks.divergence, 30_000),
+      spy_regime: Task.await(tasks.spy_regime, 30_000),
+      qqq_regime: Task.await(tasks.qqq_regime, 30_000),
+      rs_results: Task.await(tasks.rs_results, 30_000)
+    }
+
+    {divergence, divergence_history} = results.divergence
+    spy_regime = results.spy_regime
+    qqq_regime = results.qqq_regime
+    rs_results = results.rs_results
+
+    # Phase 2: Run dependent operations in parallel
+    scenario_tasks = %{
+      spy_scenarios: Task.async(fn -> safe_generate_scenarios(:SPY, spy_regime, date) end),
+      qqq_scenarios: Task.async(fn -> safe_generate_scenarios(:QQQ, qqq_regime, date) end),
+      watchlist: Task.async(fn -> safe_classify_watchlist(rs_results, date) end)
+    }
+
+    spy_scenarios = Task.await(scenario_tasks.spy_scenarios, 10_000)
+    qqq_scenarios = Task.await(scenario_tasks.qqq_scenarios, 10_000)
+    watchlist = Task.await(scenario_tasks.watchlist, 10_000)
+
+    preview =
+      build_preview(
+        date,
+        divergence,
+        divergence_history,
+        spy_regime,
+        qqq_regime,
+        spy_scenarios,
+        qqq_scenarios,
+        watchlist,
+        rs_results
+      )
+
+    {:ok, preview}
+  end
+
+  # Safe wrappers that always return a value (never raise)
+
+  defp safe_analyze_divergence(date) do
+    case analyze_divergence_with_history(date) do
+      {:ok, {d, h}} -> {d, h}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp safe_detect_regime(symbol, date) do
+    case detect_regime(symbol, date) do
+      {:ok, r} -> r
+      _ -> nil
+    end
+  end
+
+  defp safe_get_rs_rankings(symbols, benchmark, date) do
+    case get_rs_rankings(symbols, benchmark, date) do
+      {:ok, r} -> r
+      _ -> []
+    end
+  end
+
+  defp safe_generate_scenarios(symbol, regime, date) do
+    case generate_scenarios(symbol, regime, date) do
+      {:ok, s} -> s
+      _ -> []
+    end
+  end
+
+  defp safe_classify_watchlist(rs_results, date) do
+    WatchlistScreener.classify_from_rs(rs_results, date)
+  end
+
   # Private Functions
 
   defp get_configured_symbols do

@@ -47,25 +47,42 @@ defmodule SignalWeb.SymbolLive do
 
     calendar_month = Date.beginning_of_month(selected_date)
 
-    {:ok,
-     socket
-     |> assign(
-       page_title: "#{symbol} Analysis",
-       symbol: symbol,
-       selected_date: selected_date,
-       calendar_month: calendar_month,
-       min_date: min_date,
-       max_date: max_date,
-       trading_days: load_trading_days_for_month(calendar_month),
-       bars: [],
-       trades: [],
-       simulated_trades: [],
-       simulation_ran: false,
-       key_levels: nil,
-       selected_trade: nil,
-       show_simulated: true
-     )
-     |> load_data_for_date()}
+    socket =
+      socket
+      |> assign(
+        page_title: "#{symbol} Analysis",
+        symbol: symbol,
+        selected_date: selected_date,
+        calendar_month: calendar_month,
+        min_date: min_date,
+        max_date: max_date,
+        trading_days: load_trading_days_for_month(calendar_month),
+        simulated_trades: [],
+        simulation_ran: false,
+        selected_trade: nil,
+        show_simulated: true
+      )
+
+    # Load chart data asynchronously when connected
+    socket =
+      if connected?(socket) do
+        assign_async(socket, [:bars, :trades, :key_levels], fn ->
+          {:ok,
+           %{
+             bars: load_bars_for_date(symbol, selected_date),
+             trades: load_trades_for_date(symbol, selected_date),
+             key_levels: load_key_levels_for_date(symbol, selected_date)
+           }}
+        end)
+      else
+        # Pre-render: set to nil (not loading yet)
+        socket
+        |> assign(:bars, nil)
+        |> assign(:trades, nil)
+        |> assign(:key_levels, nil)
+      end
+
+    {:ok, socket}
   end
 
   @impl true
@@ -90,24 +107,31 @@ defmodule SignalWeb.SymbolLive do
 
       calendar_month = Date.beginning_of_month(selected_date)
 
-      {:noreply,
-       socket
-       |> assign(
-         page_title: "#{symbol} Analysis",
-         symbol: symbol,
-         selected_date: selected_date,
-         calendar_month: calendar_month,
-         min_date: min_date,
-         max_date: max_date,
-         trading_days: load_trading_days_for_month(calendar_month),
-         bars: [],
-         trades: [],
-         simulated_trades: [],
-         simulation_ran: false,
-         key_levels: nil,
-         selected_trade: nil
-       )
-       |> load_data_for_date()}
+      socket =
+        socket
+        |> cancel_async(:bars)
+        |> assign(
+          page_title: "#{symbol} Analysis",
+          symbol: symbol,
+          selected_date: selected_date,
+          calendar_month: calendar_month,
+          min_date: min_date,
+          max_date: max_date,
+          trading_days: load_trading_days_for_month(calendar_month),
+          simulated_trades: [],
+          simulation_ran: false,
+          selected_trade: nil
+        )
+        |> assign_async([:bars, :trades, :key_levels], fn ->
+          {:ok,
+           %{
+             bars: load_bars_for_date(symbol, selected_date),
+             trades: load_trades_for_date(symbol, selected_date),
+             key_levels: load_key_levels_for_date(symbol, selected_date)
+           }}
+        end)
+
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -121,27 +145,22 @@ defmodule SignalWeb.SymbolLive do
   def handle_event("select_date", %{"date" => date_string}, socket) do
     case Date.from_iso8601(date_string) do
       {:ok, date} ->
-        updated_socket =
+        symbol = socket.assigns.symbol
+
+        socket =
           socket
+          |> cancel_async(:bars)
           |> assign(selected_date: date, simulated_trades: [], simulation_ran: false)
-          |> load_data_for_date()
+          |> assign_async([:bars, :trades, :key_levels], fn ->
+            {:ok,
+             %{
+               bars: load_bars_for_date(symbol, date),
+               trades: load_trades_for_date(symbol, date),
+               key_levels: load_key_levels_for_date(symbol, date)
+             }}
+          end)
 
-        formatted_bars = format_bars_for_chart(updated_socket.assigns.bars)
-
-        formatted_trades =
-          format_trades_for_chart(
-            updated_socket.assigns.trades,
-            updated_socket.assigns.simulated_trades
-          )
-
-        formatted_levels = format_levels_for_chart(updated_socket.assigns.key_levels)
-
-        {:noreply,
-         push_event(updated_socket, "chart-data-updated", %{
-           bars: formatted_bars,
-           trades: formatted_trades,
-           levels: formatted_levels
-         })}
+        {:noreply, socket}
 
       {:error, _reason} ->
         {:noreply, socket}
@@ -156,9 +175,9 @@ defmodule SignalWeb.SymbolLive do
     {:ok, trades} = DaySimulator.run(symbol, date, %{target_r: Decimal.new("2.0")})
 
     updated_socket = assign(socket, simulated_trades: trades, simulation_ran: true)
-    formatted_bars = format_bars_for_chart(updated_socket.assigns.bars)
-    formatted_trades = format_trades_for_chart(updated_socket.assigns.trades, trades)
-    formatted_levels = format_levels_for_chart(updated_socket.assigns.key_levels)
+    formatted_bars = format_bars_for_chart(get_bars(socket.assigns))
+    formatted_trades = format_trades_for_chart(get_trades(socket.assigns), trades)
+    formatted_levels = format_levels_for_chart(get_key_levels(socket.assigns))
 
     {:noreply,
      push_event(updated_socket, "chart-data-updated", %{
@@ -171,9 +190,9 @@ defmodule SignalWeb.SymbolLive do
   @impl true
   def handle_event("clear_simulation", _params, socket) do
     updated_socket = assign(socket, simulated_trades: [], simulation_ran: false)
-    formatted_bars = format_bars_for_chart(updated_socket.assigns.bars)
-    formatted_trades = format_trades_for_chart(updated_socket.assigns.trades, [])
-    formatted_levels = format_levels_for_chart(updated_socket.assigns.key_levels)
+    formatted_bars = format_bars_for_chart(get_bars(socket.assigns))
+    formatted_trades = format_trades_for_chart(get_trades(socket.assigns), [])
+    formatted_levels = format_levels_for_chart(get_key_levels(socket.assigns))
 
     {:noreply,
      push_event(updated_socket, "chart-data-updated", %{
@@ -238,8 +257,10 @@ defmodule SignalWeb.SymbolLive do
   @impl true
   def handle_event("select_trade", %{"id" => trade_id}, socket) do
     # Look in both persisted trades and simulated trades
+    persisted_trades = get_trades(socket.assigns)
+
     trade =
-      Enum.find(socket.assigns.trades, &(&1.id == trade_id)) ||
+      Enum.find(persisted_trades, &(&1.id == trade_id)) ||
         Enum.find(socket.assigns.simulated_trades, &(&1.id == trade_id))
 
     socket = assign(socket, :selected_trade, trade)
@@ -293,20 +314,34 @@ defmodule SignalWeb.SymbolLive do
     end
   end
 
-  defp load_data_for_date(socket) do
-    symbol = socket.assigns.symbol
-    date = socket.assigns.selected_date
+  # Async result helper functions for template
+  defp chart_loading?(assigns) do
+    is_struct(assigns.bars, Phoenix.LiveView.AsyncResult) and assigns.bars.loading
+  end
 
-    # Load bars for the selected date
-    bars = load_bars_for_date(symbol, date)
+  defp chart_loaded?(assigns) do
+    is_struct(assigns.bars, Phoenix.LiveView.AsyncResult) and assigns.bars.ok?
+  end
 
-    # Load trades for the selected date
-    trades = load_trades_for_date(symbol, date)
+  defp get_bars(assigns) do
+    case assigns.bars do
+      %Phoenix.LiveView.AsyncResult{ok?: true, result: bars} -> bars
+      _ -> []
+    end
+  end
 
-    # Load key levels for the selected date
-    key_levels = load_key_levels_for_date(symbol, date)
+  defp get_trades(assigns) do
+    case assigns.trades do
+      %Phoenix.LiveView.AsyncResult{ok?: true, result: trades} -> trades
+      _ -> []
+    end
+  end
 
-    assign(socket, bars: bars, trades: trades, key_levels: key_levels)
+  defp get_key_levels(assigns) do
+    case assigns.key_levels do
+      %Phoenix.LiveView.AsyncResult{ok?: true, result: levels} -> levels
+      _ -> nil
+    end
   end
 
   defp load_trading_days_for_month(month) do
@@ -350,8 +385,11 @@ defmodule SignalWeb.SymbolLive do
         socket.assigns.calendar_month
       end
 
-    updated_socket =
+    symbol = socket.assigns.symbol
+
+    socket =
       socket
+      |> cancel_async(:bars)
       |> assign(
         selected_date: date,
         calendar_month: calendar_month,
@@ -359,24 +397,16 @@ defmodule SignalWeb.SymbolLive do
         simulated_trades: [],
         simulation_ran: false
       )
-      |> load_data_for_date()
+      |> assign_async([:bars, :trades, :key_levels], fn ->
+        {:ok,
+         %{
+           bars: load_bars_for_date(symbol, date),
+           trades: load_trades_for_date(symbol, date),
+           key_levels: load_key_levels_for_date(symbol, date)
+         }}
+      end)
 
-    formatted_bars = format_bars_for_chart(updated_socket.assigns.bars)
-
-    formatted_trades =
-      format_trades_for_chart(
-        updated_socket.assigns.trades,
-        updated_socket.assigns.simulated_trades
-      )
-
-    formatted_levels = format_levels_for_chart(updated_socket.assigns.key_levels)
-
-    {:noreply,
-     push_event(updated_socket, "chart-data-updated", %{
-       bars: formatted_bars,
-       trades: formatted_trades,
-       levels: formatted_levels
-     })}
+    {:noreply, socket}
   end
 
   defp load_bars_for_date(symbol, date) do
@@ -837,23 +867,37 @@ defmodule SignalWeb.SymbolLive do
             </div>
           </div>
           
-    <!-- Chart Container -->
+    <!-- Chart Container - Loading State -->
           <div
+            :if={chart_loading?(assigns)}
+            class="w-full min-h-[600px] flex items-center justify-center"
+          >
+            <div class="flex flex-col items-center gap-3">
+              <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin">
+              </div>
+              <span class="text-zinc-500 text-sm">Loading chart data...</span>
+            </div>
+          </div>
+          
+    <!-- Chart Container - Loaded State -->
+          <div
+            :if={chart_loaded?(assigns)}
             id="symbol-chart"
             phx-hook="SymbolChart"
             phx-update="ignore"
             data-symbol={@symbol}
-            data-initial-bars={Jason.encode!(format_bars_for_chart(@bars))}
-            data-trades={Jason.encode!(format_trades_for_chart(@trades))}
-            data-levels={Jason.encode!(format_levels_for_chart(@key_levels))}
+            data-initial-bars={Jason.encode!(format_bars_for_chart(get_bars(assigns)))}
+            data-trades={Jason.encode!(format_trades_for_chart(get_trades(assigns)))}
+            data-levels={Jason.encode!(format_levels_for_chart(get_key_levels(assigns)))}
             class="w-full min-h-[600px]"
           >
           </div>
           
     <!-- Chart Footer -->
-          <%= if length(@bars) > 0 do %>
-            <% first_bar = List.first(@bars) %>
-            <% last_bar = List.last(@bars) %>
+          <% bars = get_bars(assigns) %>
+          <%= if length(bars) > 0 do %>
+            <% first_bar = List.first(bars) %>
+            <% last_bar = List.last(bars) %>
             <div class="px-6 py-4 bg-zinc-900/80 border-t border-zinc-800">
               <div class="grid grid-cols-4 gap-4 text-center">
                 <div>
@@ -865,13 +909,13 @@ defmodule SignalWeb.SymbolLive do
                 <div>
                   <div class="text-xs text-zinc-500 mb-1">HIGH</div>
                   <div class="text-sm font-mono font-semibold text-green-400">
-                    ${format_price(Enum.max_by(@bars, &Decimal.to_float(&1.high)).high)}
+                    ${format_price(Enum.max_by(bars, &Decimal.to_float(&1.high)).high)}
                   </div>
                 </div>
                 <div>
                   <div class="text-xs text-zinc-500 mb-1">LOW</div>
                   <div class="text-sm font-mono font-semibold text-red-400">
-                    ${format_price(Enum.min_by(@bars, &Decimal.to_float(&1.low)).low)}
+                    ${format_price(Enum.min_by(bars, &Decimal.to_float(&1.low)).low)}
                   </div>
                 </div>
                 <div>
@@ -920,7 +964,7 @@ defmodule SignalWeb.SymbolLive do
         
     <!-- Trades - Full Width (only shown after simulation has run) -->
         <%= if @simulation_ran do %>
-          <% all_trades = @trades ++ @simulated_trades %>
+          <% all_trades = get_trades(assigns) ++ @simulated_trades %>
           <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden">
             <div class="px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
               <div class="flex items-center justify-between">
