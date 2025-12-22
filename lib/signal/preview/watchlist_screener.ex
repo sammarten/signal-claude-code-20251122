@@ -56,6 +56,30 @@ defmodule Signal.Preview.WatchlistScreener do
   end
 
   @doc """
+  Classifies symbols using pre-computed relative strength results.
+
+  This is an optimized version that avoids redundant RS calculation
+  when RS results have already been computed.
+
+  ## Parameters
+
+    * `rs_results` - Pre-computed list of RelativeStrength structs
+    * `date` - Date for analysis
+
+  ## Returns
+
+    Map with :high_conviction, :monitoring, :avoid lists
+  """
+  @spec classify_from_rs([RelativeStrength.t()], Date.t()) :: %{
+          high_conviction: [WatchlistItem.t()],
+          monitoring: [WatchlistItem.t()],
+          avoid: [WatchlistItem.t()]
+        }
+  def classify_from_rs(rs_results, date) do
+    classify_symbols(rs_results, date)
+  end
+
+  @doc """
   Classifies a single symbol based on RS and levels.
 
   ## Parameters

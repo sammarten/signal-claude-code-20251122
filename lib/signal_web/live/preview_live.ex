@@ -24,9 +24,6 @@ defmodule SignalWeb.PreviewLive do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(loading: true)
-      |> assign(error: nil)
-      |> assign(preview: nil)
       |> assign(today: Date.utc_today())
       # Expansion states for progressive disclosure
       |> assign(regime_expanded: false)
@@ -43,31 +40,43 @@ defmodule SignalWeb.PreviewLive do
     socket =
       socket
       |> assign(date: date)
-      |> assign(loading: true)
-      |> assign(preview: nil)
-
-    if connected?(socket) do
-      send(self(), :generate_preview)
-    end
+      |> cancel_existing_async()
+      |> start_async_loading(date)
 
     {:noreply, socket}
   end
 
-  @impl true
-  def handle_info(:generate_preview, socket) do
-    # generate_partial always succeeds (handles internal errors gracefully)
-    {:ok, preview} = Generator.generate_partial(date: socket.assigns.date)
-    {:noreply, assign(socket, preview: preview, loading: false, error: nil)}
+  # Cancel any existing async operations when date changes
+  defp cancel_existing_async(socket) do
+    socket
+    |> cancel_async(:preview_data)
+  end
+
+  # Start async loading for all preview data in parallel
+  defp start_async_loading(socket, date) do
+    if connected?(socket) do
+      assign_async(socket, :preview_data, fn ->
+        {:ok, preview} = Generator.generate_parallel(date: date)
+        {:ok, %{preview_data: preview}}
+      end)
+    else
+      # Pre-render state: show loading
+      assign(socket, :preview_data, %Phoenix.LiveView.AsyncResult{
+        ok?: false,
+        loading: true,
+        failed: nil,
+        result: nil
+      })
+    end
   end
 
   @impl true
   def handle_event("refresh", _params, socket) do
     socket =
       socket
-      |> assign(loading: true)
-      |> assign(error: nil)
+      |> cancel_existing_async()
+      |> start_async_loading(socket.assigns.date)
 
-    send(self(), :generate_preview)
     {:noreply, socket}
   end
 
@@ -122,20 +131,20 @@ defmodule SignalWeb.PreviewLive do
         <!-- Date Navigation -->
         <.date_navigator date={@date} today={@today} />
 
-        <%= if @loading do %>
-          <.loading_state />
-        <% else %>
-          <%= if @error do %>
-            <.error_state error={@error} />
-          <% else %>
-            <.preview_content
-              preview={@preview}
-              regime_expanded={@regime_expanded}
-              divergence_expanded={@divergence_expanded}
-              rs_expanded={@rs_expanded}
-            />
-          <% end %>
-        <% end %>
+        <.async_result :let={data} assign={@preview_data}>
+          <:loading>
+            <.loading_state />
+          </:loading>
+          <:failed :let={_reason}>
+            <.error_state error={:generation_failed} />
+          </:failed>
+          <.preview_content
+            preview={data}
+            regime_expanded={@regime_expanded}
+            divergence_expanded={@divergence_expanded}
+            rs_expanded={@rs_expanded}
+          />
+        </.async_result>
       </div>
     </div>
     """

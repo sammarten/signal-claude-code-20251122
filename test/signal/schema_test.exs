@@ -16,12 +16,12 @@ defmodule Signal.SchemaTest do
       columns = Enum.map(result.rows, fn [name, type, nullable] -> {name, type, nullable} end)
 
       # Verify all expected columns exist
-      assert {"bar_time", "timestamp with time zone", "NO"} in columns
+      assert {"bar_time", "timestamp without time zone", "NO"} in columns
       assert {"close", "numeric", "NO"} in columns
       assert {"high", "numeric", "NO"} in columns
       assert {"low", "numeric", "NO"} in columns
       assert {"open", "numeric", "NO"} in columns
-      assert {"symbol", "text", "NO"} in columns
+      assert {"symbol", "character varying", "NO"} in columns
       assert {"trade_count", "integer", "YES"} in columns
       assert {"volume", "bigint", "NO"} in columns
       assert {"vwap", "numeric", "YES"} in columns

@@ -19,6 +19,7 @@ defmodule SignalWeb.MarketLive do
   def mount(_params, _session, socket) do
     # Get configured symbols
     symbols = Application.get_env(:signal, :symbols, [])
+    chart_symbols = Enum.take(symbols, 4)
 
     # Subscribe to PubSub topics for real-time updates
     if connected?(socket) do
@@ -34,55 +35,58 @@ defmodule SignalWeb.MarketLive do
       Phoenix.PubSub.subscribe(Signal.PubSub, "system:stats")
     end
 
-    # Load initial data from BarCache
+    # Load initial data from BarCache (fast ETS lookup)
     symbol_data = load_initial_data(symbols)
 
     # Get current system stats and connection status from Monitor
     # This ensures we show the correct status even if the stream connected before LiveView mounted
     {connection_status, db_healthy, last_message} = get_initial_monitor_stats()
 
-    # Load chart data once (only for the first 4 symbols shown in charts)
-    # This prevents expensive DB queries on every render
-    chart_data =
+    socket =
+      socket
+      |> assign(
+        symbols: symbols,
+        chart_symbols: chart_symbols,
+        symbol_data: symbol_data,
+        connection_status: connection_status,
+        connection_details: %{},
+        stats_expanded: false,
+        system_stats: %{
+          quotes_per_sec: 0,
+          bars_per_min: 0,
+          trades_per_sec: 0,
+          uptime_seconds: 0,
+          db_healthy: db_healthy,
+          last_quote: last_message.quote,
+          last_bar: last_message.bar
+        }
+      )
+
+    # Load chart data asynchronously (expensive DB queries)
+    # Only load when connected to avoid blocking initial render
+    socket =
       if connected?(socket) do
-        symbols
-        |> Enum.take(4)
-        |> Enum.map(fn symbol -> {symbol, get_recent_bars_for_chart(symbol)} end)
-        |> Map.new()
+        assign_async(socket, [:chart_data, :key_levels], fn ->
+          chart_data =
+            chart_symbols
+            |> Enum.map(fn symbol -> {symbol, get_recent_bars_for_chart(symbol)} end)
+            |> Map.new()
+
+          key_levels =
+            chart_symbols
+            |> Enum.map(fn symbol -> {symbol, load_key_levels(symbol)} end)
+            |> Map.new()
+
+          {:ok, %{chart_data: chart_data, key_levels: key_levels}}
+        end)
       else
-        %{}
+        # Pre-render state: no async results yet
+        socket
+        |> assign(:chart_data, nil)
+        |> assign(:key_levels, nil)
       end
 
-    # Load key levels for chart symbols
-    key_levels =
-      if connected?(socket) do
-        symbols
-        |> Enum.take(4)
-        |> Enum.map(fn symbol -> {symbol, load_key_levels(symbol)} end)
-        |> Map.new()
-      else
-        %{}
-      end
-
-    {:ok,
-     assign(socket,
-       symbols: symbols,
-       symbol_data: symbol_data,
-       chart_data: chart_data,
-       key_levels: key_levels,
-       connection_status: connection_status,
-       connection_details: %{},
-       stats_expanded: false,
-       system_stats: %{
-         quotes_per_sec: 0,
-         bars_per_min: 0,
-         trades_per_sec: 0,
-         uptime_seconds: 0,
-         db_healthy: db_healthy,
-         last_quote: last_message.quote,
-         last_bar: last_message.bar
-       }
-     )}
+    {:ok, socket}
   end
 
   @impl true
@@ -118,9 +122,9 @@ defmodule SignalWeb.MarketLive do
     symbol_data = Map.put(socket.assigns.symbol_data, symbol, updated_data)
 
     # Push price update to chart (for real-time candle updates)
-    # Only push if this symbol is in the first 4 (shown in charts)
+    # Only push if this symbol is in the chart symbols
     socket =
-      if symbol in Enum.take(socket.assigns.symbols, 4) do
+      if symbol in socket.assigns.chart_symbols do
         # Truncate timestamp to current minute for candle time
         bar_time = DateTime.truncate(quote.timestamp, :second)
         bar_time_unix = DateTime.to_unix(bar_time) - rem(DateTime.to_unix(bar_time), 60)
@@ -199,18 +203,28 @@ defmodule SignalWeb.MarketLive do
 
   @impl true
   def handle_info({:levels_updated, symbol, levels}, socket) do
-    # Update key levels for this symbol
-    key_levels = Map.put(socket.assigns.key_levels, symbol, format_levels_for_chart(levels))
+    formatted_levels = format_levels_for_chart(levels)
 
-    # Push level updates to the chart if this symbol is in the first 4
+    # Update key levels in the async result if it's loaded
     socket =
-      if symbol in Enum.take(socket.assigns.symbols, 4) do
-        push_event(socket, "levels-update-#{symbol}", %{levels: format_levels_for_chart(levels)})
+      if is_struct(socket.assigns.key_levels, Phoenix.LiveView.AsyncResult) and
+           socket.assigns.key_levels.ok? do
+        updated_levels = Map.put(socket.assigns.key_levels.result, symbol, formatted_levels)
+
+        assign(socket, :key_levels, %{socket.assigns.key_levels | result: updated_levels})
       else
         socket
       end
 
-    {:noreply, assign(socket, :key_levels, key_levels)}
+    # Push level updates to the chart if this symbol is in the chart symbols
+    socket =
+      if symbol in socket.assigns.chart_symbols do
+        push_event(socket, "levels-update-#{symbol}", %{levels: formatted_levels})
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -444,6 +458,31 @@ defmodule SignalWeb.MarketLive do
     Decimal.to_float(decimal)
   end
 
+  # Async result helpers for template
+  defp chart_loading?(nil), do: false
+
+  defp chart_loading?(%Phoenix.LiveView.AsyncResult{loading: loading}), do: loading
+
+  defp chart_loading?(_), do: false
+
+  defp chart_loaded?(nil), do: false
+
+  defp chart_loaded?(%Phoenix.LiveView.AsyncResult{ok?: ok}), do: ok
+
+  defp chart_loaded?(_), do: false
+
+  defp get_chart_bars(%Phoenix.LiveView.AsyncResult{ok?: true, result: result}, symbol) do
+    Map.get(result, symbol, [])
+  end
+
+  defp get_chart_bars(_, _symbol), do: []
+
+  defp get_key_levels(%Phoenix.LiveView.AsyncResult{ok?: true, result: result}, symbol) do
+    Map.get(result, symbol, %{})
+  end
+
+  defp get_key_levels(_, _symbol), do: %{}
+
   # Template
   @impl true
   def render(assigns) do
@@ -470,7 +509,7 @@ defmodule SignalWeb.MarketLive do
         
     <!-- Charts Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <%= for symbol <- Enum.take(@symbols, 4) do %>
+          <%= for symbol <- @chart_symbols do %>
             <% data = Map.get(@symbol_data, symbol, initial_symbol_data(symbol)) %>
             <div class="bg-zinc-900/50 backdrop-blur-sm rounded-2xl border border-zinc-800 overflow-hidden shadow-2xl hover:shadow-green-500/10 transition-all duration-300 hover:border-zinc-700">
               <!-- Chart Header -->
@@ -494,14 +533,27 @@ defmodule SignalWeb.MarketLive do
                 </div>
               </div>
               
-    <!-- Chart Container -->
+    <!-- Chart Container - Loading State -->
               <div
+                :if={chart_loading?(@chart_data)}
+                class="w-full min-h-[500px] flex items-center justify-center"
+              >
+                <div class="flex flex-col items-center gap-3">
+                  <div class="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin">
+                  </div>
+                  <span class="text-zinc-500 text-sm">Loading chart data...</span>
+                </div>
+              </div>
+              
+    <!-- Chart Container - Loaded State -->
+              <div
+                :if={chart_loaded?(@chart_data)}
                 id={"chart-#{symbol}"}
                 phx-hook="TradingChart"
                 phx-update="ignore"
                 data-symbol={symbol}
-                data-initial-bars={Jason.encode!(Map.get(@chart_data, symbol, []))}
-                data-key-levels={Jason.encode!(Map.get(@key_levels, symbol, %{}))}
+                data-initial-bars={Jason.encode!(get_chart_bars(@chart_data, symbol))}
+                data-key-levels={Jason.encode!(get_key_levels(@key_levels, symbol))}
                 class="w-full min-h-[500px]"
               >
               </div>
